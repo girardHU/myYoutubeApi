@@ -6,8 +6,8 @@ from flask_sqlalchemy import SQLAlchemy
 from objects import Retour
 
 ## REGEX
-word = re.compile('[a-zA-Z0-9_-]')
-email = re.compile('^[a-z0-9]+[\._]?[a-z0-9]+[@]\w+[.]\w{2,3}$')
+wordRe = re.compile('[a-zA-Z0-9_-]')
+emailRe = re.compile('^[a-z0-9]+[\._]?[a-z0-9]+[@]\w+[.]\w{2,3}$')
 
 ## APP
 app = Flask(__name__)
@@ -26,6 +26,9 @@ class User(db.Model):
     def __repr__(self):
         return '<User %r>' % self.username
 
+    def as_dict(self):
+        return { c.name: getattr(self, c.name) for c in self.__table__.columns }
+
 
 @app.route('/')
 def hello_world():
@@ -36,18 +39,21 @@ def hello_world():
 def user():
     # TODO Hachage
     if request.method == 'POST':
-        params = request.json
-        if ('username' and 'email' and 'password' in params and
-        word.match(params.get('username')) and email.match(params.get('email'))):
-            if (User.query.filter_by(username=params.get('username')).first() is None and
-            User.query.filter_by(email=params.get('email')).first() is None):
-                newUser = User(username=params.get('username'),
-                                email=params.get('email'),
-                                pseudo=params.get('pseudo'),
-                                password=params.get('password'))
+        username = request.json.get('username')
+        email = request.json.get('email')
+        pseudo = request.json.get('pseudo')
+        password = request.json.get('password')
+        if (username and email and password is not None and
+        wordRe.match(username) and emailRe.match(email)):
+            if (User.query.filter_by(username=username).first() is None and
+            User.query.filter_by(email=email).first() is None):
+                newUser = User(username=username,
+                                email=email,
+                                pseudo=pseudo,
+                                password=password)
                 db.session.add(newUser)
                 db.session.commit()
-                return { 'message' : 'Ok', 'data': newUser }
+                return { 'message' : 'Ok', 'data': newUser.as_dict() }
             else:
                 return Retour.create_error('Bad Request', 400, ['resource already exists'])
         else:
@@ -55,3 +61,10 @@ def user():
 
     elif request.method == 'GET':
         return 'GET User'
+
+@app.route('/auth', methods=['POST'])
+def auth():
+    params = request.json
+    if ('login' and 'password' in params and
+    isInstance(params.get('username'), str) and isInstance(params.get('password'), str)):
+        return 'OK'
