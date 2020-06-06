@@ -2,8 +2,8 @@ import json
 import re
 from datetime import datetime, timedelta
 from secrets import token_hex
-from flask import Flask
-from flask import request
+from flask import Flask, request
+from functools import wraps
 from flask_sqlalchemy import SQLAlchemy
 from objects import Retour
 
@@ -42,6 +42,16 @@ class Token(db.Model, JsonableModel):
         backref=db.backref('users', lazy=True))
 
 
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        requestToken = request.headers.get('Authorization')
+        tokenObj = Token.query.filter_by(code=requestToken).first()
+        if tokenObj is None:
+            return { 'message': 'Token is invalid' }, 400
+        return f(*args, **kwargs)
+    return decorated_function
+
 
 @app.route('/')
 def hello_world():
@@ -77,6 +87,7 @@ def user():
     elif request.method == 'GET':
         return 'GET User'
 
+# TODO create JWT token instead of random string
 @app.route('/auth', methods=['POST'])
 def auth():
     login = request.json.get('login')
