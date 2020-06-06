@@ -1,5 +1,7 @@
 import json
 import re
+from datetime import datetime, timedelta
+from secrets import token_hex
 from flask import Flask
 from flask import request
 from flask_sqlalchemy import SQLAlchemy
@@ -15,19 +17,30 @@ app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://user@localhost:3306/myd
 db = SQLAlchemy(app)
 
 ## MODELS
-class User(db.Model):
+class JsonableModel():
+    def as_dict(self):
+        return { c.name: getattr(self, c.name) for c in self.__table__.columns }
+
+class User(db.Model, JsonableModel):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(45), unique=True, nullable=False)
     email = db.Column(db.String(45), unique=True, nullable=False)
     pseudo = db.Column(db.String(45), nullable=True)
     password = db.Column(db.String(45), nullable=False)
-    created_at = db.Column(db.DateTime(), unique=False, nullable=False, default=db.func.now())
+    created_at = db.Column(db.DateTime(), unique=False, nullable=False, default=datetime.utcnow())
 
     def __repr__(self):
         return '<User %r>' % self.username
 
-    def as_dict(self):
-        return { c.name: getattr(self, c.name) for c in self.__table__.columns }
+class Token(db.Model, JsonableModel):
+    id = db.Column(db.Integer, primary_key=True)
+    code = db.Column(db.String(45), unique=True, nullable=False)
+    expired_at = db.Column(db.DateTime(), unique=False, nullable=False, default=datetime.utcnow() + timedelta(days=1))
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'),
+        nullable=False)
+    user = db.relationship('User',
+        backref=db.backref('users', lazy=True))
+
 
 
 @app.route('/')
@@ -35,9 +48,11 @@ def hello_world():
     return 'Hello, World!'
 
 
+# TODO remove .first()
+
+# TODO Hachage
 @app.route('/user', methods=['GET', 'POST'])
 def user():
-    # TODO Hachage
     if request.method == 'POST':
         username = request.json.get('username')
         email = request.json.get('email')
@@ -53,7 +68,7 @@ def user():
                                 password=password)
                 db.session.add(newUser)
                 db.session.commit()
-                return { 'message' : 'Ok', 'data': newUser.as_dict() }
+                return { 'message' : 'Ok', 'data': newUser.as_dict() }, 201
             else:
                 return Retour.create_error('Bad Request', 400, ['resource already exists'])
         else:
@@ -64,7 +79,22 @@ def user():
 
 @app.route('/auth', methods=['POST'])
 def auth():
-    params = request.json
-    if ('login' and 'password' in params and
-    isInstance(params.get('username'), str) and isInstance(params.get('password'), str)):
-        return 'OK'
+    login = request.json.get('login')
+    password = request.json.get('password')
+    if (login and password is not None and
+    isinstance(login, str) and isinstance(password, str)):
+        relatedUser = User.query.filter_by(username=login, password=password).first()
+        if (relatedUser is not None):
+            existingToken = Token.query.filter_by(user_id=relatedUser.id).first()
+            if (existingToken is not None):
+                return { 'message': 'OK', 'data': existingToken.as_dict() }, 200
+            else:
+                newToken = Token(code=token_hex(16), user_id=relatedUser.id)
+                db.session.add(newToken)
+                db.session.commit()
+                return { 'message': 'OK', 'data': newToken.as_dict() }, 201
+
+        else:
+            return Retour.create_error('Bad Request', 400, ['no resource found'])
+    else:
+        return Retour.create_error('Bad Request', 400, ['bad parameters'])
