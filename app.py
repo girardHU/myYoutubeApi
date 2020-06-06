@@ -61,7 +61,7 @@ def hello_world():
 # TODO remove .first()
 
 # TODO Hachage
-@app.route('/user', methods=['GET', 'POST'])
+@app.route('/user', methods=['POST'])
 def user():
     if request.method == 'POST':
         username = request.json.get('username')
@@ -84,43 +84,63 @@ def user():
         else:
             return Retour.create_error('Bad Request', 400, ['bad parameters']), 400
 
-    elif request.method == 'GET':
-        return 'GET User'
 
-@app.route('/user/<id>', methods=['DELETE'])
+@app.route('/user/<id>', methods=['DELETE', 'PUT'])
 @login_required
 def user_delete(id):
-    requestToken = request.headers.get('Authorization')
-    tokenObj = Token.query.filter_by(code=requestToken).first()
-    if (int(id) == tokenObj.user_id):
-        userToDelete = User.query.filter_by(id=id).first()
-        db.session.delete(tokenObj)
-        db.session.delete(userToDelete)
-        db.session.commit()
-        return { 'message': 'OK', 'data': 'user deleted successfully'}, 201
-    else:
-        return Retour.create_error('Unauthorized', 401, ['you don\'t have access to this resource']), 401
-    return Retour.create_error('Server Error', 500, ['Error while processing']), 500
+    if request.method == 'DELETE':
+        requestToken = request.headers.get('Authorization')
+        tokenObj = Token.query.filter_by(code=requestToken).first()
+        if (int(id) == tokenObj.user_id):
+            userToDelete = User.query.filter_by(id=id).first()
+            db.session.delete(tokenObj)
+            db.session.delete(userToDelete)
+            db.session.commit()
+            return { 'message': 'OK', 'data': 'user deleted successfully'}, 201
+        else:
+            return Retour.create_error('Unauthorized', 401, ['you don\'t have access to this resource']), 401
+        return Retour.create_error('Server Error', 500, ['Error while processing']), 500
+
+    if request.method == 'PUT':
+        username = request.json.get('username')
+        email = request.json.get('email')
+        pseudo = request.json.get('pseudo')
+        password = request.json.get('password')
+        if (username and email and pseudo and password is not None and
+        wordRe.match(username) and emailRe.match(email)):
+            userToUpdate = User.query.filter_by(username=username).first()
+            if userToUpdate is not None:
+                userToUpdate.email = email
+                userToUpdate.pseudo = pseudo
+                userToUpdate.password = password
+                db.session.commit()
+                return { 'message' : 'Ok', 'data': userToUpdate.as_dict() }, 201
+            else:
+                return Retour.create_error('Bad Request', 400, ['resource does not exist']), 400
+        else:
+            return Retour.create_error('Bad Request', 400, ['bad parameters']), 400
+
 
 # TODO create JWT token instead of random string
 @app.route('/auth', methods=['POST'])
 def auth():
-    login = request.json.get('login')
-    password = request.json.get('password')
-    if (login and password is not None and
-    isinstance(login, str) and isinstance(password, str)):
-        relatedUser = User.query.filter_by(username=login, password=password).first()
-        if (relatedUser is not None):
-            existingToken = Token.query.filter_by(user_id=relatedUser.id).first()
-            if (existingToken is not None):
-                return { 'message': 'OK', 'data': existingToken.as_dict() }, 200
-            else:
-                newToken = Token(code=token_hex(16), user_id=relatedUser.id)
-                db.session.add(newToken)
-                db.session.commit()
-                return { 'message': 'OK', 'data': newToken.as_dict() }, 201
+    if request.method == 'POST':
+        login = request.json.get('login')
+        password = request.json.get('password')
+        if (login and password is not None and
+        isinstance(login, str) and isinstance(password, str)):
+            relatedUser = User.query.filter_by(username=login, password=password).first()
+            if (relatedUser is not None):
+                existingToken = Token.query.filter_by(user_id=relatedUser.id).first()
+                if (existingToken is not None):
+                    return { 'message': 'OK', 'data': existingToken.as_dict() }, 200
+                else:
+                    newToken = Token(code=token_hex(16), user_id=relatedUser.id)
+                    db.session.add(newToken)
+                    db.session.commit()
+                    return { 'message': 'OK', 'data': newToken.as_dict() }, 201
 
+            else:
+                return Retour.create_error('Bad Request', 400, ['no resource found']), 400
         else:
-            return Retour.create_error('Bad Request', 400, ['no resource found']), 400
-    else:
-        return Retour.create_error('Bad Request', 400, ['bad parameters']), 400
+            return Retour.create_error('Bad Request', 400, ['bad parameters']), 400
