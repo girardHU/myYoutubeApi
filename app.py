@@ -80,12 +80,27 @@ def user():
                 db.session.commit()
                 return { 'message' : 'Ok', 'data': newUser.as_dict() }, 201
             else:
-                return Retour.create_error('Bad Request', 400, ['resource already exists'])
+                return Retour.create_error('Bad Request', 400, ['resource already exists']), 400
         else:
-            return Retour.create_error('Bad Request', 400, ['bad parameters'])
+            return Retour.create_error('Bad Request', 400, ['bad parameters']), 400
 
     elif request.method == 'GET':
         return 'GET User'
+
+@app.route('/user/<id>', methods=['DELETE'])
+@login_required
+def user_delete(id):
+    requestToken = request.headers.get('Authorization')
+    tokenObj = Token.query.filter_by(code=requestToken).first()
+    if (int(id) == tokenObj.user_id):
+        userToDelete = User.query.filter_by(id=id).first()
+        db.session.delete(tokenObj)
+        db.session.delete(userToDelete)
+        db.session.commit()
+        return { 'message': 'OK', 'data': 'user deleted successfully'}, 201
+    else:
+        return Retour.create_error('Unauthorized', 401, ['you don\'t have access to this resource']), 401
+    return Retour.create_error('Server Error', 500, ['Error while processing']), 500
 
 # TODO create JWT token instead of random string
 @app.route('/auth', methods=['POST'])
@@ -106,6 +121,6 @@ def auth():
                 return { 'message': 'OK', 'data': newToken.as_dict() }, 201
 
         else:
-            return Retour.create_error('Bad Request', 400, ['no resource found'])
+            return Retour.create_error('Bad Request', 400, ['no resource found']), 400
     else:
-        return Retour.create_error('Bad Request', 400, ['bad parameters'])
+        return Retour.create_error('Bad Request', 400, ['bad parameters']), 400
