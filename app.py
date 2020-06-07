@@ -86,9 +86,9 @@ def user():
             return Retour.create_error('Bad Request', 400, ['bad parameters']), 400
 
 
-@app.route('/user/<id>', methods=['DELETE', 'PUT'])
+@app.route('/user/<id>', methods=['DELETE', 'PUT', 'GET'])
 @login_required
-def user_delete(id):
+def user_update(id):
     if request.method == 'DELETE':
         requestToken = request.headers.get('Authorization')
         tokenObj = Token.query.filter_by(code=requestToken).first()
@@ -120,6 +120,13 @@ def user_delete(id):
                 return Retour.create_error('Bad Request', 400, ['resource does not exist']), 400
         else:
             return Retour.create_error('Bad Request', 400, ['bad parameters']), 400
+
+    if request.method == 'GET':
+        user = User.query.filter_by(id=id).first()
+        if user is not None:
+            return { 'message': 'OK', 'data': user.as_dict() }, 200
+        else:
+            return Retour.create_error('Bad Request', 400, ['resource does not exist']), 400
 
 
 @app.route('/users', methods=['GET'])
