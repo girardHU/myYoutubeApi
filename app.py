@@ -5,6 +5,7 @@ from secrets import token_hex
 from flask import Flask, request
 from functools import wraps
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import text
 from objects import Retour
 
 ## REGEX
@@ -120,6 +121,30 @@ def user_delete(id):
         else:
             return Retour.create_error('Bad Request', 400, ['bad parameters']), 400
 
+
+@app.route('/users', methods=['GET'])
+def users():
+    if request.method == 'GET':
+        pseudo = request.args.get('pseudo')
+        page = int(request.args.get('page'))
+        page = 1 if page is None else page
+        perPage = int(request.args['perPage'])
+        perPage = 5 if perPage is None else perPage
+
+        if (pseudo is not None):
+            users = User.query.filter_by(pseudo=pseudo).order_by(text("id desc")).all()
+            length = len(users)
+            total = int(len(users) / perPage)
+            total = total + 1 if len(users) % perPage != 0 else total
+            startIndex = perPage * (page - 1)
+            endIndex = perPage * page
+            printableUsers = []
+            for user in users:
+                printableUsers.append(user.as_dict())
+            return { 'message': 'OK', 'data': printableUsers[startIndex:endIndex], 'pager': { 'current': page, 'total': total } }
+        else:
+            return 'Bad Creds'
+    return 'users OK'
 
 # TODO create JWT token instead of random string
 @app.route('/auth', methods=['POST'])
