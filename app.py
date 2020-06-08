@@ -8,6 +8,25 @@ from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import text
 from objects import Retour
 
+## FILE UPLOAD
+import os
+from flask import Flask, flash, request, redirect, url_for
+from werkzeug.utils import secure_filename
+
+UPLOAD_FOLDER = '/home/itha/Dev/ETNA/myFlaskAPI/public'
+ALLOWED_EXTENSIONS = {'mp4', 'avi', 'mkv'}
+
+## VIDEO LENGTH
+import subprocess
+
+def get_length(filename):
+    result = subprocess.run(["ffprobe", "-v", "error", "-show_entries",
+                            "format=duration", "-of",
+                            "default=noprint_wrappers=1:nokey=1", filename],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT)
+    return int(float(result.stdout)) + 1
+
 ## REGEX
 wordRe = re.compile('[a-zA-Z0-9_-]')
 emailRe = re.compile('^[a-z0-9]+[\._]?[a-z0-9]+[@]\w+[.]\w{2,3}$')
@@ -16,6 +35,7 @@ emailRe = re.compile('^[a-z0-9]+[\._]?[a-z0-9]+[@]\w+[.]\w{2,3}$')
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://user@localhost:3306/mydb'
 db = SQLAlchemy(app)
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 ## MODELS
 class JsonableModel():
@@ -40,7 +60,7 @@ class Token(db.Model, JsonableModel):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'),
         nullable=False)
     user = db.relationship('User',
-        backref=db.backref('users', lazy=True))
+        backref=db.backref('owner_token', lazy=True))
 
 class Video(db.Model, JsonableModel):
     id = db.Column(db.Integer, primary_key=True)
@@ -49,7 +69,7 @@ class Video(db.Model, JsonableModel):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'),
         nullable=False)
     user = db.relationship('User',
-        backref=db.backref('users', lazy=True))
+        backref=db.backref('owner_videos', lazy=True))
     source = db.Column(db.String(45), nullable=False)
     created_at = db.Column(db.DateTime(), unique=False, nullable=False, default=datetime.utcnow())
     view = db.Column(db.Integer, nullable=False)
@@ -66,6 +86,8 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 @app.route('/')
 def hello_world():
@@ -152,7 +174,7 @@ def users():
         perPage = 5 if perPage is None else perPage
 
         if (pseudo is not None):
-            users = User.query.filter_by(pseudo=pseudo).order_by(text("id desc")).all()
+            users = User.query.filter_by(pseudo=pseudo).order_by(text('id desc')).all()
             length = len(users)
             total = int(len(users) / perPage)
             total = total + 1 if len(users) % perPage != 0 else total
@@ -189,3 +211,31 @@ def auth():
                 return Retour.create_error('Bad Request', 400, ['no resource found']), 400
         else:
             return Retour.create_error('Bad Request', 400, ['bad parameters']), 400
+
+@app.route('/user/<id>/video', methods=['POST'])
+@login_required
+def upload_file(id):
+    if request.method == 'POST':
+        if 'file' not in request.files:
+            return Retour.create_error('Bad Request', 400, ['no file sent']), 400
+        file = request.files['file']
+        if file.filename == '':
+            return Retour.create_error('Bad Request', 400, ['no file sent']), 400
+        if file and allowed_file(file.filename):
+            filename = secure_filename(file.filename)
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            i = 0
+            while (os.path.isfile(filepath)):
+                i += 1
+                filepath = os.path.join(app.config['UPLOAD_FOLDER'], str(i) + '_' + filename)
+            file.save(filepath)
+            newVideo = Video(name=filename,
+                            duration=get_length(filepath),
+                            user_id=id,
+                            source=str(i) + '_' + filename,
+                            view=0,
+                            enabled=1)
+            db.session.add(newVideo)
+            db.session.commit()
+            return { 'message': 'OK', 'data': newVideo.as_dict() }
+    return Retour.create_error('Bad Method', 405, ['you shouldn\'t be able to see that']), 405
