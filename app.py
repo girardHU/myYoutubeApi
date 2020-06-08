@@ -42,6 +42,19 @@ class Token(db.Model, JsonableModel):
     user = db.relationship('User',
         backref=db.backref('users', lazy=True))
 
+class Video(db.Model, JsonableModel):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(45), nullable=False)
+    duration = db.Column(db.Integer)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'),
+        nullable=False)
+    user = db.relationship('User',
+        backref=db.backref('users', lazy=True))
+    source = db.Column(db.String(45), nullable=False)
+    created_at = db.Column(db.DateTime(), unique=False, nullable=False, default=datetime.utcnow())
+    view = db.Column(db.Integer, nullable=False)
+    enabled = db.Column(db.Boolean, nullable=False)
+
 
 def login_required(f):
     @wraps(f)
