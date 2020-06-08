@@ -94,11 +94,12 @@ def hello_world():
     return 'Hello, World!'
 
 
-# TODO remove .first()
+# TODO s'occuper du type d'auth (voir cahier des charges)
+# TODO corriger les GET avec params
 
 # TODO Hachage
 @app.route('/user', methods=['POST'])
-def user():
+def post_user():
     if request.method == 'POST':
         username = request.json.get('username')
         email = request.json.get('email')
@@ -123,7 +124,7 @@ def user():
 
 @app.route('/user/<id>', methods=['DELETE', 'PUT', 'GET'])
 @login_required
-def user_update(id):
+def update_user(id):
     if request.method == 'DELETE':
         requestToken = request.headers.get('Authorization')
         tokenObj = Token.query.filter_by(code=requestToken).first()
@@ -165,7 +166,7 @@ def user_update(id):
 
 
 @app.route('/users', methods=['GET'])
-def users():
+def list_users():
     if request.method == 'GET':
         pseudo = request.args.get('pseudo')
         page = int(request.args.get('page'))
@@ -185,8 +186,8 @@ def users():
                 printableUsers.append(user.as_dict())
             return { 'message': 'OK', 'data': printableUsers[startIndex:endIndex], 'pager': { 'current': page, 'total': total } }
         else:
-            return 'Bad Creds'
-    return 'users OK'
+            return Retour.create_error('Bad Request', 400, ['Bad Params']), 400
+    return Retour.create_error('Bad Method', 405, ['you shouldn\'t be able to see that']), 405
 
 # TODO create JWT token instead of random string
 @app.route('/auth', methods=['POST'])
@@ -213,8 +214,8 @@ def auth():
             return Retour.create_error('Bad Request', 400, ['bad parameters']), 400
 
 @app.route('/user/<id>/video', methods=['POST'])
-@login_required
-def upload_file(id):
+# @login_required
+def upload_video(id):
     if request.method == 'POST':
         if 'file' not in request.files:
             return Retour.create_error('Bad Request', 400, ['no file sent']), 400
@@ -238,4 +239,35 @@ def upload_file(id):
             db.session.add(newVideo)
             db.session.commit()
             return { 'message': 'OK', 'data': newVideo.as_dict() }
+    return Retour.create_error('Bad Method', 405, ['you shouldn\'t be able to see that']), 405
+
+#TODO gerer user string or int
+@app.route('/videos', methods=['GET'])
+def list_videos():
+    if request.method == 'GET':
+        name = request.json.get('name')
+        user_id = request.json.get('user')
+        duration = request.json.get('duration')
+        page = request.json.get('page')
+        page = 1 if page is None else page
+        perPage = request.json.get('perPage')
+        perPage = 5 if perPage is None else perPage
+
+        if name is not None:
+            videos = Video.query.filter_by(name=name).order_by(text('id desc')).all()
+        elif user_id is not None:
+            videos = Video.query.filter_by(user_id=user_id).order_by(text('id desc')).all()
+        elif duration is not None:
+            videos = Video.query.filter_by(duration=duration).order_by(text('id desc')).all()
+        else:
+            return Retour.create_error('Bad Request', 400, ['Bad Params']), 400
+        length = len(videos)
+        total = int(len(videos) / perPage)
+        total = total + 1 if len(videos) % perPage != 0 else total
+        startIndex = perPage * (page - 1)
+        endIndex = perPage * page
+        printableVideos = []
+        for video in videos:
+            printableVideos.append(video.as_dict())
+        return { 'message': 'OK', 'data': printableVideos[startIndex:endIndex], 'pager': { 'current': page, 'total': total } }
     return Retour.create_error('Bad Method', 405, ['you shouldn\'t be able to see that']), 405
