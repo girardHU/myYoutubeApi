@@ -75,6 +75,19 @@ class Video(db.Model, JsonableModel):
     view = db.Column(db.Integer, nullable=False)
     enabled = db.Column(db.Boolean, nullable=False)
 
+class Comment(db.Model, JsonableModel):
+    id = db.Column(db.Integer, primary_key=True)
+    body = db.Column(db.String(16000000), nullable=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'),
+        nullable=False)
+    user = db.relationship('User',
+        backref=db.backref('owner_comments', lazy=True))
+    video_id = db.Column(db.Integer, db.ForeignKey('video.id'),
+        nullable=False)
+    video = db.relationship('Video',
+        backref=db.backref('related_videos', lazy=True))
+    # created_at = db.Column(db.DateTime(), unique=False, nullable=False, default=datetime.utcnow())
+
 
 def login_required(f):
     @wraps(f)
@@ -317,5 +330,22 @@ def update_video(id):
             return Retour.create_error('Forbidden', 403, ['you don\'t have access to this resource']), 403
         return Retour.create_error('Server Error', 500, ['Error while processing']), 500
 
-
-# @app.route('/', methods=[''])
+@app.route('/video/<id>/comment', methods=['POST'])
+def post_comment(id):
+    if request.method == 'POST':
+        body = request.json.get('body')
+        requestToken = request.headers.get('Authorization')
+        tokenObj = Token.query.filter_by(code=requestToken).first()
+        videoObj = Video.query.filter_by(id=int(id)).first()
+        if body is not None:
+            if tokenObj.user_id == videoObj.user_id:
+                newComment = Comment(body=body,
+                                video_id=int(id),
+                                user_id=videoObj.user_id)
+                db.session.add(newComment)
+                db.session.commit()
+                return { 'message' : 'OK', 'data': newComment.as_dict() }, 201
+            else:
+                return Retour.create_error('Forbidden', 403, ['you don\'t have access to this resource']), 403
+        else:
+            return Retour.create_error('Bad Request', 400, ['bad parameters']), 400
