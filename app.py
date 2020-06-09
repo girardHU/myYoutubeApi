@@ -296,6 +296,7 @@ def list_videos():
     return Retour.create_error('Bad Method', 405, ['you shouldn\'t be able to see that']), 405
 
 @app.route('/video/<id>', methods=['PATCH', 'PUT', 'DELETE'])
+# @login_required
 def update_video(id):
     if request.method == 'PATCH':
         # TODO step 10 / encoding
@@ -331,6 +332,7 @@ def update_video(id):
         return Retour.create_error('Server Error', 500, ['Error while processing']), 500
 
 @app.route('/video/<id>/comment', methods=['POST'])
+# @login_required
 def post_comment(id):
     if request.method == 'POST':
         body = request.json.get('body')
@@ -349,3 +351,25 @@ def post_comment(id):
                 return Retour.create_error('Forbidden', 403, ['you don\'t have access to this resource']), 403
         else:
             return Retour.create_error('Bad Request', 400, ['bad parameters']), 400
+
+@app.route('/video/<id>/comments', methods=['GET'])
+# @login_required
+def list_comments(id):
+    if request.method == 'GET':
+        page = int(request.args['page'])
+        page = 1 if page is None else page
+        perPage = int(request.args['perPage'])
+        perPage = 5 if perPage is None else perPage
+
+        comments = Comment.query.filter_by(video_id=int(id)).order_by(text('id desc')).all()
+        length = len(comments)
+        total = int(len(comments) / perPage)
+        total = total + 1 if len(comments) % perPage != 0 else total
+        startIndex = perPage * (page - 1)
+        endIndex = perPage * page
+        printableComments = []
+        for user in comments:
+            printableComments.append(user.as_dict())
+        return { 'message': 'OK', 'data': printableComments[startIndex:endIndex], 'pager': { 'current': page, 'total': total } }
+
+    return Retour.create_error('Bad Method', 405, ['you shouldn\'t be able to see that']), 405
