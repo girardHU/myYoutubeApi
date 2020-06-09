@@ -86,6 +86,16 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+# def res_ownership_required(f):
+#     @wraps(f)
+#     def decorated_function(*args, **kwargs):
+#         requestToken = request.headers.get('Authorization')
+#         tokenObj = Token.query.filter_by(code=requestToken).first()
+#         if tokenObj is None:
+#             return { 'message': 'Token is invalid' }, 401
+#         return f(*args, **kwargs)
+#     return decorated_function
+
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
@@ -135,7 +145,7 @@ def update_user(id):
             db.session.commit()
             return { 'message': 'OK', 'data': 'user deleted successfully'}, 201
         else:
-            return Retour.create_error('Unauthorized', 401, ['you don\'t have access to this resource']), 401
+            return Retour.create_error('Forbidden', 403, ['you don\'t have access to this resource']), 403
         return Retour.create_error('Server Error', 500, ['Error while processing']), 500
 
     if request.method == 'PUT':
@@ -224,8 +234,8 @@ def upload_video(id):
             return Retour.create_error('Bad Request', 400, ['no file sent']), 400
         if file and allowed_file(file.filename):
             filename = secure_filename(file.filename)
-            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
             i = 0
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], str(i) + '_' + filename)
             while (os.path.isfile(filepath)):
                 i += 1
                 filepath = os.path.join(app.config['UPLOAD_FOLDER'], str(i) + '_' + filename)
@@ -272,7 +282,7 @@ def list_videos():
         return { 'message': 'OK', 'data': printableVideos[startIndex:endIndex], 'pager': { 'current': page, 'total': total } }
     return Retour.create_error('Bad Method', 405, ['you shouldn\'t be able to see that']), 405
 
-@app.route('/video/<id>', methods=['PATCH', 'PUT'])
+@app.route('/video/<id>', methods=['PATCH', 'PUT', 'DELETE'])
 def update_video(id):
     if request.method == 'PATCH':
         # TODO step 10 / encoding
@@ -293,6 +303,18 @@ def update_video(id):
                 return Retour.create_error('Bad Request', 400, ['resource does not exist']), 400
         else:
             return Retour.create_error('Bad Request', 400, ['bad parameters']), 400
+
+    if request.method == 'DELETE':
+        requestToken = request.headers.get('Authorization')
+        tokenObj = Token.query.filter_by(code=requestToken).first()
+        videoToDelete = Video.query.filter_by(id=id).first()
+        if (videoToDelete.user_id == tokenObj.user_id):
+            db.session.delete(videoToDelete)
+            db.session.commit()
+            return { 'message': 'OK', 'data': 'video deleted successfully'}, 201
+        else:
+            return Retour.create_error('Forbidden', 403, ['you don\'t have access to this resource']), 403
+        return Retour.create_error('Server Error', 500, ['Error while processing']), 500
 
 
 # @app.route('/', methods=[''])
