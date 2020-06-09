@@ -82,7 +82,7 @@ def login_required(f):
         requestToken = request.headers.get('Authorization')
         tokenObj = Token.query.filter_by(code=requestToken).first()
         if tokenObj is None:
-            return { 'message': 'Token is invalid' }, 400
+            return { 'message': 'Token is invalid' }, 401
         return f(*args, **kwargs)
     return decorated_function
 
@@ -271,3 +271,28 @@ def list_videos():
             printableVideos.append(video.as_dict())
         return { 'message': 'OK', 'data': printableVideos[startIndex:endIndex], 'pager': { 'current': page, 'total': total } }
     return Retour.create_error('Bad Method', 405, ['you shouldn\'t be able to see that']), 405
+
+@app.route('/video/<id>', methods=['PATCH', 'PUT'])
+def update_video(id):
+    if request.method == 'PATCH':
+        # TODO step 10 / encoding
+        return 'PATCH'
+    
+    if request.method == 'PUT':
+        name = request.json.get('name')
+        user_id = request.json.get('user')
+        if (name and user_id is not None and
+        isinstance(user_id, int)):
+            videoToUpdate = Video.query.filter_by(id=id).first()
+            if videoToUpdate is not None:
+                videoToUpdate.name = name
+                videoToUpdate.user_id = user_id
+                db.session.commit()
+                return { 'message' : 'Ok', 'data': videoToUpdate.as_dict() }, 201
+            else:
+                return Retour.create_error('Bad Request', 400, ['resource does not exist']), 400
+        else:
+            return Retour.create_error('Bad Request', 400, ['bad parameters']), 400
+
+
+# @app.route('/', methods=[''])
