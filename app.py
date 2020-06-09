@@ -143,7 +143,7 @@ def update_user(id):
             db.session.delete(tokenObj)
             db.session.delete(userToDelete)
             db.session.commit()
-            return { 'message': 'OK', 'data': 'user deleted successfully'}, 201
+            return 204
         else:
             return Retour.create_error('Forbidden', 403, ['you don\'t have access to this resource']), 403
         return Retour.create_error('Server Error', 500, ['Error while processing']), 500
@@ -309,9 +309,10 @@ def update_video(id):
         tokenObj = Token.query.filter_by(code=requestToken).first()
         videoToDelete = Video.query.filter_by(id=id).first()
         if (videoToDelete.user_id == tokenObj.user_id):
+            os.remove(os.path.join(app.config['UPLOAD_FOLDER'],videoToDelete.source))
             db.session.delete(videoToDelete)
             db.session.commit()
-            return { 'message': 'OK', 'data': 'video deleted successfully'}, 201
+            return 204
         else:
             return Retour.create_error('Forbidden', 403, ['you don\'t have access to this resource']), 403
         return Retour.create_error('Server Error', 500, ['Error while processing']), 500
