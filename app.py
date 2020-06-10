@@ -99,15 +99,20 @@ def auth_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-def res_ownership_required(f):
-    @wraps(f)
-    def decorated_function(user_id, *args, **kwargs):
-        requestToken = request.headers.get('Authorization')
-        tokenObj = Token.query.filter_by(code=requestToken).first()
-        if tokenObj.user_id != user_id:
-            return { 'message': 'You can\'t access to this resource' }, 403
-        return f(*args, **kwargs)
-    return decorated_function
+def ownership(request, user_id):
+    requestToken = request.headers.get('Authorization')
+    tokenObj = Token.query.filter_by(code=requestToken).first()
+    return tokenObj.user_id == user_id
+
+# def res_ownership_required(f):
+#     @wraps(f)
+#     def decorated_function(user_id, *args, **kwargs):
+#         requestToken = request.headers.get('Authorization')
+#         tokenObj = Token.query.filter_by(code=requestToken).first()
+#         if tokenObj.user_id != user_id:
+#             return { 'message': 'You can\'t access this resource' }, 403
+#         return f(*args, **kwargs)
+#     return decorated_function
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -162,7 +167,7 @@ def post_user():
                             password=hash_password(password))
             db.session.add(newUser)
             db.session.commit()
-            return { 'message' : 'Ok', 'data': newUser.as_dict() }, 201
+            return { 'message' : 'OK', 'data': newUser.as_dict() }, 201
         return create_error('Bad Request', 400, [error]), 400
 
 
@@ -170,17 +175,19 @@ def post_user():
 @auth_required
 def update_user(id):
     if request.method == 'DELETE':
-        requestToken = request.headers.get('Authorization')
-        tokenObj = Token.query.filter_by(code=requestToken).first()
-        if (int(id) == tokenObj.user_id):
-            userToDelete = User.query.filter_by(id=id).first()
-            db.session.delete(tokenObj)
-            db.session.delete(userToDelete)
-            db.session.commit()
-            return 204
-        else:
-            return create_error('Forbidden', 403, ['you don\'t have access to this resource']), 403
-        return create_error('Server Error', 500, ['Error while processing']), 500
+        try:
+            if ownership(request, int(id)):
+                userToDelete = User.query.filter_by(id=id).first()
+                requestToken = request.headers.get('Authorization')
+                tokenObj = Token.query.filter_by(code=requestToken).first()
+                db.session.delete(tokenObj)
+                db.session.delete(userToDelete)
+                db.session.commit()
+                return { 'message' : 'OK' }, 204
+            else:
+                return create_error('Forbidden', 403, ['you don\'t have access this resource']), 403
+        except ValueError:
+            return create_error('Bad Request', 400, ['id is not an int']), 403
 
     if request.method == 'PUT':
         username = request.json.get('username')
@@ -195,7 +202,7 @@ def update_user(id):
                 userToUpdate.pseudo = pseudo
                 userToUpdate.password = password
                 db.session.commit()
-                return { 'message' : 'Ok', 'data': userToUpdate.as_dict() }, 201
+                return { 'message' : 'OK', 'data': userToUpdate.as_dict() }, 201
             else:
                 return create_error('Bad Request', 400, ['resource does not exist']), 400
         else:
@@ -335,7 +342,7 @@ def update_video(id):
                 videoToUpdate.name = name
                 videoToUpdate.user_id = user_id
                 db.session.commit()
-                return { 'message' : 'Ok', 'data': videoToUpdate.as_dict() }, 201
+                return { 'message' : 'OK', 'data': videoToUpdate.as_dict() }, 201
             else:
                 return create_error('Bad Request', 400, ['resource does not exist']), 400
         else:
