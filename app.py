@@ -214,8 +214,7 @@ def update_user(id):
                         return { 'message' : 'OK', 'data': userToUpdate.as_dict() }, 201
                     else:
                         return create_error('Bad Request', 400, ['resource does not exist']), 400
-                else:
-                    return create_error('Bad Request', 400, [error]), 400
+                return create_error('Bad Request', 400, [error]), 400
             else:
                 return create_error('Forbidden', 403, ['you don\'t have access this resource']), 403
 
@@ -231,12 +230,15 @@ def update_user(id):
 def list_users():
     if request.method == 'GET':
         pseudo = request.args.get('pseudo')
-        page = int(request.args.get('page'))
-        page = 1 if page is None else page
-        perPage = int(request.args.get('perPage'))
-        perPage = 5 if perPage is None else perPage
+        try:
+            page = int(request.args.get('page'))
+            page = 1 if page is None else page
+            perPage = int(request.args.get('perPage'))
+            perPage = 5 if perPage is None else perPage
+        except ValueError:
+            return create_error('Bad Request', 400, ['either page, perPage or both of them are not int']), 400
 
-        if (pseudo is not None):
+        if pseudo is not None:
             users = User.query.filter_by(pseudo=pseudo).order_by(text('id desc')).all()
             length = len(users)
             total = int(len(users) / perPage)
@@ -248,10 +250,8 @@ def list_users():
                 printableUsers.append(user.as_dict())
             return { 'message': 'OK', 'data': printableUsers[startIndex:endIndex], 'pager': { 'current': page, 'total': total } }
         else:
-            return create_error('Bad Request', 400, ['Bad Params']), 400
-    return create_error('Bad Method', 405, ['you shouldn\'t be able to see that']), 405
+            return create_error('Not Found', 404, ['No user with this pseudo was found']), 404
 
-# TODO create JWT token instead of random string
 @app.route('/auth', methods=['POST'])
 def auth():
     if request.method == 'POST':
