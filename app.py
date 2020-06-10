@@ -7,7 +7,6 @@ from flask import Flask, request
 from functools import wraps
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import text
-from objects import Retour
 
 ## FILE UPLOAD
 import os
@@ -90,7 +89,7 @@ class Comment(db.Model, JsonableModel):
     # created_at = db.Column(db.DateTime(), unique=False, nullable=False, default=datetime.utcnow())
 
 
-def login_required(f):
+def auth_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         requestToken = request.headers.get('Authorization')
@@ -100,18 +99,25 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-# def res_ownership_required(f):
-#     @wraps(f)
-#     def decorated_function(*args, **kwargs):
-#         requestToken = request.headers.get('Authorization')
-#         tokenObj = Token.query.filter_by(code=requestToken).first()
-#         if tokenObj is None:
-#             return { 'message': 'Token is invalid' }, 401
-#         return f(*args, **kwargs)
-#     return decorated_function
+def res_ownership_required(f):
+    @wraps(f)
+    def decorated_function(user_id, *args, **kwargs):
+        requestToken = request.headers.get('Authorization')
+        tokenObj = Token.query.filter_by(code=requestToken).first()
+        if tokenObj.user_id != user_id:
+            return { 'message': 'You can\'t access to this resource' }, 403
+        return f(*args, **kwargs)
+    return decorated_function
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def create_error(message, code, data):
+    return {
+        'message': message,
+        'code': code,
+        'data': data
+    }
 
 def hash_password(password):
     """Hash a password for storing."""
@@ -135,7 +141,6 @@ def verify_password(stored_password, provided_password):
 # TODO s'occuper du type d'auth (voir cahier des charges)
 # TODO corriger les GET avec params
 
-# TODO Hachage
 @app.route('/user', methods=['POST'])
 def post_user():
     if request.method == 'POST':
@@ -158,11 +163,11 @@ def post_user():
             db.session.add(newUser)
             db.session.commit()
             return { 'message' : 'Ok', 'data': newUser.as_dict() }, 201
-        return Retour.create_error('Bad Request', 400, [error]), 400
+        return create_error('Bad Request', 400, [error]), 400
 
 
 @app.route('/user/<id>', methods=['DELETE', 'PUT', 'GET'])
-@login_required
+@auth_required
 def update_user(id):
     if request.method == 'DELETE':
         requestToken = request.headers.get('Authorization')
@@ -174,8 +179,8 @@ def update_user(id):
             db.session.commit()
             return 204
         else:
-            return Retour.create_error('Forbidden', 403, ['you don\'t have access to this resource']), 403
-        return Retour.create_error('Server Error', 500, ['Error while processing']), 500
+            return create_error('Forbidden', 403, ['you don\'t have access to this resource']), 403
+        return create_error('Server Error', 500, ['Error while processing']), 500
 
     if request.method == 'PUT':
         username = request.json.get('username')
@@ -192,16 +197,16 @@ def update_user(id):
                 db.session.commit()
                 return { 'message' : 'Ok', 'data': userToUpdate.as_dict() }, 201
             else:
-                return Retour.create_error('Bad Request', 400, ['resource does not exist']), 400
+                return create_error('Bad Request', 400, ['resource does not exist']), 400
         else:
-            return Retour.create_error('Bad Request', 400, ['bad parameters']), 400
+            return create_error('Bad Request', 400, ['bad parameters']), 400
 
     if request.method == 'GET':
         user = User.query.filter_by(id=id).first()
         if user is not None:
             return { 'message': 'OK', 'data': user.as_dict() }, 200
         else:
-            return Retour.create_error('Bad Request', 400, ['resource does not exist']), 400
+            return create_error('Bad Request', 400, ['resource does not exist']), 400
 
 
 @app.route('/users', methods=['GET'])
@@ -210,7 +215,7 @@ def list_users():
         pseudo = request.args.get('pseudo')
         page = int(request.args.get('page'))
         page = 1 if page is None else page
-        perPage = int(request.args['perPage'])
+        perPage = int(request.args.get('perPage'))
         perPage = 5 if perPage is None else perPage
 
         if (pseudo is not None):
@@ -225,8 +230,8 @@ def list_users():
                 printableUsers.append(user.as_dict())
             return { 'message': 'OK', 'data': printableUsers[startIndex:endIndex], 'pager': { 'current': page, 'total': total } }
         else:
-            return Retour.create_error('Bad Request', 400, ['Bad Params']), 400
-    return Retour.create_error('Bad Method', 405, ['you shouldn\'t be able to see that']), 405
+            return create_error('Bad Request', 400, ['Bad Params']), 400
+    return create_error('Bad Method', 405, ['you shouldn\'t be able to see that']), 405
 
 # TODO create JWT token instead of random string
 @app.route('/auth', methods=['POST'])
@@ -234,33 +239,35 @@ def auth():
     if request.method == 'POST':
         login = request.json.get('login')
         password = request.json.get('password')
-        if (login and password is not None and
-        isinstance(login, str) and isinstance(password, str)):
-            relatedUser = User.query.filter_by(username=login, password=password).first()
-            if (relatedUser is not None):
+        error = None
+        if login is None or password is None:
+            error = 'missing either login, password or both'
+        elif not isinstance(login, str) or not isinstance(password, str):
+            error = 'login or password are not string, or both'
+        if error is None:
+            relatedUser = User.query.filter_by(username=login).first()
+            if relatedUser is not None and verify_password(relatedUser.password, password):
                 existingToken = Token.query.filter_by(user_id=relatedUser.id).first()
-                if (existingToken is not None):
+                if existingToken is not None:
                     return { 'message': 'OK', 'data': existingToken.as_dict() }, 200
                 else:
                     newToken = Token(code=token_hex(16), user_id=relatedUser.id)
                     db.session.add(newToken)
                     db.session.commit()
                     return { 'message': 'OK', 'data': newToken.as_dict() }, 201
-
             else:
-                return Retour.create_error('Bad Request', 400, ['no resource found']), 400
-        else:
-            return Retour.create_error('Bad Request', 400, ['bad parameters']), 400
+                error = 'user referenced with this username and password does not exist'
+        return create_error('Bad Request', 400, [error]), 400
 
 @app.route('/user/<id>/video', methods=['POST'])
-# @login_required
+# @auth_required
 def upload_video(id):
     if request.method == 'POST':
         if 'file' not in request.files:
-            return Retour.create_error('Bad Request', 400, ['no file sent']), 400
+            return create_error('Bad Request', 400, ['no file sent']), 400
         file = request.files['file']
         if file.filename == '':
-            return Retour.create_error('Bad Request', 400, ['no file sent']), 400
+            return create_error('Bad Request', 400, ['no file sent']), 400
         if file and allowed_file(file.filename):
             filename = secure_filename(file.filename)
             i = 0
@@ -278,7 +285,7 @@ def upload_video(id):
             db.session.add(newVideo)
             db.session.commit()
             return { 'message': 'OK', 'data': newVideo.as_dict() }
-    return Retour.create_error('Bad Method', 405, ['you shouldn\'t be able to see that']), 405
+    return create_error('Bad Method', 405, ['you shouldn\'t be able to see that']), 405
 
 #TODO gerer user string or int
 @app.route('/videos', methods=['GET'])
@@ -299,7 +306,7 @@ def list_videos():
         elif duration is not None:
             videos = Video.query.filter_by(duration=duration).order_by(text('id desc')).all()
         else:
-            return Retour.create_error('Bad Request', 400, ['Bad Params']), 400
+            return create_error('Bad Request', 400, ['Bad Params']), 400
         length = len(videos)
         total = int(len(videos) / perPage)
         total = total + 1 if len(videos) % perPage != 0 else total
@@ -309,10 +316,10 @@ def list_videos():
         for video in videos:
             printableVideos.append(video.as_dict())
         return { 'message': 'OK', 'data': printableVideos[startIndex:endIndex], 'pager': { 'current': page, 'total': total } }
-    return Retour.create_error('Bad Method', 405, ['you shouldn\'t be able to see that']), 405
+    return create_error('Bad Method', 405, ['you shouldn\'t be able to see that']), 405
 
 @app.route('/video/<id>', methods=['PATCH', 'PUT', 'DELETE'])
-# @login_required
+# @auth_required
 def update_video(id):
     if request.method == 'PATCH':
         # TODO step 10 / encoding
@@ -330,9 +337,9 @@ def update_video(id):
                 db.session.commit()
                 return { 'message' : 'Ok', 'data': videoToUpdate.as_dict() }, 201
             else:
-                return Retour.create_error('Bad Request', 400, ['resource does not exist']), 400
+                return create_error('Bad Request', 400, ['resource does not exist']), 400
         else:
-            return Retour.create_error('Bad Request', 400, ['bad parameters']), 400
+            return create_error('Bad Request', 400, ['bad parameters']), 400
 
     if request.method == 'DELETE':
         requestToken = request.headers.get('Authorization')
@@ -344,11 +351,11 @@ def update_video(id):
             db.session.commit()
             return 204
         else:
-            return Retour.create_error('Forbidden', 403, ['you don\'t have access to this resource']), 403
-        return Retour.create_error('Server Error', 500, ['Error while processing']), 500
+            return create_error('Forbidden', 403, ['you don\'t have access to this resource']), 403
+        return create_error('Server Error', 500, ['Error while processing']), 500
 
 @app.route('/video/<id>/comment', methods=['POST'])
-# @login_required
+# @auth_required
 def post_comment(id):
     if request.method == 'POST':
         body = request.json.get('body')
@@ -364,17 +371,17 @@ def post_comment(id):
                 db.session.commit()
                 return { 'message' : 'OK', 'data': newComment.as_dict() }, 201
             else:
-                return Retour.create_error('Forbidden', 403, ['you don\'t have access to this resource']), 403
+                return create_error('Forbidden', 403, ['you don\'t have access to this resource']), 403
         else:
-            return Retour.create_error('Bad Request', 400, ['bad parameters']), 400
+            return create_error('Bad Request', 400, ['bad parameters']), 400
 
 @app.route('/video/<id>/comments', methods=['GET'])
-# @login_required
+# @auth_required
 def list_comments(id):
     if request.method == 'GET':
-        page = int(request.args['page'])
+        page = int(request.args.get('page'))
         page = 1 if page is None else page
-        perPage = int(request.args['perPage'])
+        perPage = int(request.args.get('perPage'))
         perPage = 5 if perPage is None else perPage
 
         comments = Comment.query.filter_by(video_id=int(id)).order_by(text('id desc')).all()
@@ -388,4 +395,4 @@ def list_comments(id):
             printableComments.append(user.as_dict())
         return { 'message': 'OK', 'data': printableComments[startIndex:endIndex], 'pager': { 'current': page, 'total': total } }
 
-    return Retour.create_error('Bad Method', 405, ['you shouldn\'t be able to see that']), 405
+    return create_error('Bad Method', 405, ['you shouldn\'t be able to see that']), 405
