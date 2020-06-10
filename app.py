@@ -1,6 +1,7 @@
 import json
 import re
 from datetime import datetime, timedelta
+import hashlib, binascii
 from secrets import token_hex
 from flask import Flask, request
 from functools import wraps
@@ -28,7 +29,7 @@ def get_length(filename):
     return int(float(result.stdout)) + 1
 
 ## REGEX
-wordRe = re.compile('[a-zA-Z0-9_-]')
+wordRe = re.compile('[a-zA-Z0-9_-]{3,12}')
 emailRe = re.compile('^[a-z0-9]+[\._]?[a-z0-9]+[@]\w+[.]\w{2,3}$')
 
 ## APP
@@ -112,10 +113,24 @@ def login_required(f):
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-@app.route('/')
-def hello_world():
-    return 'Hello, World!'
+def hash_password(password):
+    """Hash a password for storing."""
+    salt = hashlib.sha256(os.urandom(60)).hexdigest().encode('ascii')
+    pwdhash = hashlib.pbkdf2_hmac('sha512', password.encode('utf-8'), 
+                                salt, 100000)
+    pwdhash = binascii.hexlify(pwdhash)
+    return (salt + pwdhash).decode('ascii')
 
+def verify_password(stored_password, provided_password):
+    """Verify a stored password against one provided by user"""
+    salt = stored_password[:64]
+    stored_password = stored_password[64:]
+    pwdhash = hashlib.pbkdf2_hmac('sha512', 
+                                provided_password.encode('utf-8'), 
+                                salt.encode('ascii'), 
+                                100000)
+    pwdhash = binascii.hexlify(pwdhash).decode('ascii')
+    return pwdhash == stored_password
 
 # TODO s'occuper du type d'auth (voir cahier des charges)
 # TODO corriger les GET avec params
@@ -128,21 +143,22 @@ def post_user():
         email = request.json.get('email')
         pseudo = request.json.get('pseudo')
         password = request.json.get('password')
-        if (username and email and password is not None and
-        wordRe.match(username) and emailRe.match(email)):
-            if (User.query.filter_by(username=username).first() is None and
-            User.query.filter_by(email=email).first() is None):
-                newUser = User(username=username,
-                                email=email,
-                                pseudo=pseudo,
-                                password=password)
-                db.session.add(newUser)
-                db.session.commit()
-                return { 'message' : 'Ok', 'data': newUser.as_dict() }, 201
-            else:
-                return Retour.create_error('Bad Request', 400, ['resource already exists']), 400
+        if username is None or email is None or password is None:
+            error = 'missing either username, email or password'
+        elif not wordRe.fullmatch(username) or not emailRe.fullmatch(email):
+            error = 'either invalid username (3 to 12 chars, alphanumeric, dashes and underscores), or invalid email'
+        elif (User.query.filter_by(username=username).first() is not None or
+        User.query.filter_by(email=email).first() is not None):
+            error = 'username or email already in use on another account'
         else:
-            return Retour.create_error('Bad Request', 400, ['bad parameters']), 400
+            newUser = User(username=username,
+                            email=email,
+                            pseudo=pseudo,
+                            password=hash_password(password))
+            db.session.add(newUser)
+            db.session.commit()
+            return { 'message' : 'Ok', 'data': newUser.as_dict() }, 201
+        return Retour.create_error('Bad Request', 400, [error]), 400
 
 
 @app.route('/user/<id>', methods=['DELETE', 'PUT', 'GET'])

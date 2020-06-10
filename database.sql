@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS `mydb`.`user` (
   `username` VARCHAR(45) NOT NULL,
   `email` VARCHAR(45) NOT NULL,
   `pseudo` VARCHAR(45) NULL,
-  `password` VARCHAR(45) NOT NULL,
+  `password` VARCHAR(255) NOT NULL,
   `created_at` DATETIME NOT NULL,
   PRIMARY KEY (`id`),
   UNIQUE INDEX `email_UNIQUE` (`email` ASC),
