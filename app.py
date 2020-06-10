@@ -174,9 +174,13 @@ def post_user():
 @app.route('/user/<id>', methods=['DELETE', 'PUT', 'GET'])
 @auth_required
 def update_user(id):
-    if request.method == 'DELETE':
-        try:
-            if ownership(request, int(id)):
+    try:
+        id = int(id)
+    except ValueError:
+        return create_error('Bad Request', 400, ['id is not an int']), 400
+    else:
+        if request.method == 'DELETE':
+            if ownership(request, id):
                 userToDelete = User.query.filter_by(id=id).first()
                 requestToken = request.headers.get('Authorization')
                 tokenObj = Token.query.filter_by(code=requestToken).first()
@@ -186,34 +190,41 @@ def update_user(id):
                 return { 'message' : 'OK' }, 204
             else:
                 return create_error('Forbidden', 403, ['you don\'t have access this resource']), 403
-        except ValueError:
-            return create_error('Bad Request', 400, ['id is not an int']), 403
 
-    if request.method == 'PUT':
-        username = request.json.get('username')
-        email = request.json.get('email')
-        pseudo = request.json.get('pseudo')
-        password = request.json.get('password')
-        if (username and email and pseudo and password is not None and
-        wordRe.match(username) and emailRe.match(email)):
-            userToUpdate = User.query.filter_by(username=username).first()
-            if userToUpdate is not None:
-                userToUpdate.email = email
-                userToUpdate.pseudo = pseudo
-                userToUpdate.password = password
-                db.session.commit()
-                return { 'message' : 'OK', 'data': userToUpdate.as_dict() }, 201
+        if request.method == 'PUT':
+            if ownership(request, id):
+                username = request.json.get('username')
+                email = request.json.get('email')
+                pseudo = request.json.get('pseudo')
+                password = request.json.get('password')
+                if username is None or email is None or password is None:
+                    error = 'missing either username, email or password'
+                elif not wordRe.fullmatch(username) or not emailRe.fullmatch(email):
+                    error = 'either invalid username (3 to 12 chars, alphanumeric, dashes and underscores), or invalid email'
+                elif (User.query.filter_by(username=username).first() is not None or
+                User.query.filter_by(email=email).first() is not None):
+                    error = 'username or email already in use on another account'
+                else:
+                    userToUpdate = User.query.filter_by(username=username).first()
+                    if userToUpdate is not None:
+                        userToUpdate.email = email
+                        userToUpdate.pseudo = pseudo
+                        userToUpdate.password = password
+                        db.session.commit()
+                        return { 'message' : 'OK', 'data': userToUpdate.as_dict() }, 201
+                    else:
+                        return create_error('Bad Request', 400, ['resource does not exist']), 400
+                else:
+                    return create_error('Bad Request', 400, [error]), 400
+            else:
+                return create_error('Forbidden', 403, ['you don\'t have access this resource']), 403
+
+        if request.method == 'GET':
+            user = User.query.filter_by(id=id).first()
+            if user is not None:
+                return { 'message': 'OK', 'data': user.as_dict() }, 200
             else:
                 return create_error('Bad Request', 400, ['resource does not exist']), 400
-        else:
-            return create_error('Bad Request', 400, ['bad parameters']), 400
-
-    if request.method == 'GET':
-        user = User.query.filter_by(id=id).first()
-        if user is not None:
-            return { 'message': 'OK', 'data': user.as_dict() }, 200
-        else:
-            return create_error('Bad Request', 400, ['resource does not exist']), 400
 
 
 @app.route('/users', methods=['GET'])
