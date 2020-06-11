@@ -127,6 +127,16 @@ def create_error(message, code, data):
         'data': data
     }
 
+def generate_pager_variables(item_list, page, perPage):
+    length = len(item_list)
+    total = int(length / perPage)
+    total = total + 1 if length % perPage != 0 else total
+    page = page if page <= total else total
+    startIndex = perPage * (page - 1) if perPage * (page - 1) < length else length - perPage
+    startIndex = startIndex if startIndex >= 0 else 0
+    endIndex = startIndex + perPage
+    return page, total, startIndex, endIndex
+
 def hash_password(password):
     """Hash a password for storing."""
     salt = hashlib.sha256(os.urandom(60)).hexdigest().encode('ascii')
@@ -146,8 +156,10 @@ def verify_password(stored_password, provided_password):
     pwdhash = binascii.hexlify(pwdhash).decode('ascii')
     return pwdhash == stored_password
 
-# TODO s'occuper du type d'auth (voir cahier des charges)
-# TODO corriger les GET avec params
+@app.errorhandler(404)
+def page_not_found(e):
+    return create_error('Not Found', 404, ['the uri you are requesting is not referenced',
+                                            'allegedly type error']), 404
 
 @app.route('/user', methods=['POST'])
 def post_user():
@@ -231,10 +243,14 @@ def list_users():
         pseudo = None
         if request.json:
             pseudo = request.json.get('pseudo')
+        page = request.args.get('page')
+        perPage = request.args.get('perPage')
         try:
-            page = int(request.args.get('page'))
+            if page:
+                page = int(request.args.get('page'))
             page = 1 if page is None else page
-            perPage = int(request.args.get('perPage'))
+            if perPage:
+                perPage = int(request.args.get('perPage'))
             perPage = 5 if perPage is None else perPage
         except ValueError:
             return create_error('Bad Request', 400, ['either page, perPage or both of them are not integers']), 400
@@ -243,13 +259,7 @@ def list_users():
             users = User.query.filter_by(pseudo=pseudo).order_by(text('id desc')).all()
         else:
             users = User.query.order_by(text('id desc')).all()
-        length = len(users)
-        total = int(len(users) / perPage)
-        total = total + 1 if len(users) % perPage != 0 else total
-        page = page if page <= total else total
-        startIndex = perPage * (page - 1) if perPage * (page - 1) < len(users) else len(users) - perPage
-        startIndex = startIndex if startIndex >= 0 else 0
-        endIndex = startIndex + perPage
+        page, total, startIndex, endIndex = generate_pager_variables(users, page, perPage)
         printableUsers = []
         for user in users:
             printableUsers.append(user.as_dict())
@@ -257,6 +267,31 @@ def list_users():
             return { 'message': 'OK', 'data': printableUsers[startIndex:endIndex], 'pager': { 'current': page, 'total': total } }
         else:
             return create_error('Not Found', 404, ['No user was found']), 404
+
+@app.route('/user/<int:user_id>/videos', methods=['GET'])
+def list_videos_by_user(user_id):
+    if request.method == 'GET':
+        page = request.args.get('page')
+        perPage = request.args.get('perPage')
+        try:
+            if page:
+                page = int(request.args.get('page'))
+            page = 1 if page is None else page
+            if perPage:
+                perPage = int(request.args.get('perPage'))
+            perPage = 5 if perPage is None else perPage
+        except ValueError:
+            return create_error('Bad Request', 400, ['either page, perPage or both of them are not integers']), 400
+
+        videos = Video.query.filter_by(user_id=user_id).order_by(text('id desc')).all()
+        page, total, startIndex, endIndex = generate_pager_variables(videos, page, perPage)
+        printableVideos = []
+        for video in videos:
+            printableVideos.append(video.as_dict())
+        if printableVideos:
+            return { 'message': 'OK', 'data': printableVideos[startIndex:endIndex], 'pager': { 'current': page, 'total': total } }
+        else:
+            return create_error('Not Found', 404, ['no resource matched your request']), 404
 
 @app.route('/auth', methods=['POST'])
 def auth():
@@ -313,7 +348,6 @@ def upload_video(user_id):
         else:
             return create_error('Bad Request', 400, ['your file is most likely not matching one of the following types : mp4, avi, mkv']), 400
 
-#TODO gerer user string or int
 @app.route('/videos', methods=['GET'])
 def list_videos():
     if request.method == 'GET':
@@ -322,10 +356,14 @@ def list_videos():
             name = request.json.get('name')
             user = request.json.get('user')
             duration = request.json.get('duration')
+        page = request.args.get('page')
+        perPage = request.args.get('perPage')
         try:
-            page = int(request.args.get('page'))
+            if page:
+                page = int(request.args.get('page'))
             page = 1 if page is None else page
-            perPage = int(request.args.get('perPage'))
+            if perPage:
+                perPage = int(request.args.get('perPage'))
             perPage = 5 if perPage is None else perPage
         except ValueError:
             return create_error('Bad Request', 400, ['either page, perPage or both of them are not integers']), 400
@@ -340,13 +378,7 @@ def list_videos():
             videos = Video.query.filter_by(duration=duration).order_by(text('id desc')).all()
         else:
             videos = Video.query.order_by(text('id desc')).all()
-        length = len(videos)
-        total = int(len(videos) / perPage)
-        total = total + 1 if len(videos) % perPage != 0 else total
-        page = page if page <= total else total
-        startIndex = perPage * (page - 1) if perPage * (page - 1) < len(videos) else len(videos) - perPage
-        startIndex = startIndex if startIndex >= 0 else 0
-        endIndex = startIndex + perPage
+        page, total, startIndex, endIndex = generate_pager_variables(videos, page, perPage)
         printableVideos = []
         for video in videos:
             printableVideos.append(video.as_dict())
