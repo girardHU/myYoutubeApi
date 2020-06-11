@@ -99,20 +99,23 @@ def auth_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+def res_ownership_required(f):
+    @wraps(f)
+    def decorated_function(user_id, *args, **kwargs):
+        requestToken = request.headers.get('Authorization')
+        tokenObj = Token.query.filter_by(code=requestToken).first()
+        if tokenObj is not None:
+            if tokenObj.user_id != user_id:
+                return { 'message': 'You can\'t access this resource' }, 403
+        else:
+            return { 'message': 'Token is invalid' }, 401
+        return f(user_id, *args, **kwargs)
+    return decorated_function
+
 def ownership(request, user_id):
     requestToken = request.headers.get('Authorization')
     tokenObj = Token.query.filter_by(code=requestToken).first()
     return tokenObj.user_id == user_id
-
-# def res_ownership_required(f):
-#     @wraps(f)
-#     def decorated_function(user_id, *args, **kwargs):
-#         requestToken = request.headers.get('Authorization')
-#         tokenObj = Token.query.filter_by(code=requestToken).first()
-#         if tokenObj.user_id != user_id:
-#             return { 'message': 'You can\'t access this resource' }, 403
-#         return f(*args, **kwargs)
-#     return decorated_function
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -170,60 +173,56 @@ def post_user():
             return { 'message' : 'OK', 'data': newUser.as_dict() }, 201
         return create_error('Bad Request', 400, [error]), 400
 
+##TODO DEMANDER POUR LE 404 SUR LE TYPING DIRECTEMENT DANS L'URL
 
-@app.route('/user/<id>', methods=['DELETE', 'PUT', 'GET'])
+@app.route('/user/<int:user_id>', methods=['DELETE', 'PUT', 'GET'])
 @auth_required
-def update_user(id):
-    try:
-        id = int(id)
-    except ValueError:
-        return create_error('Bad Request', 400, ['id is not an int']), 400
-    else:
-        if request.method == 'DELETE':
-            if ownership(request, id):
-                userToDelete = User.query.filter_by(id=id).first()
-                requestToken = request.headers.get('Authorization')
-                tokenObj = Token.query.filter_by(code=requestToken).first()
-                db.session.delete(tokenObj)
-                db.session.delete(userToDelete)
-                db.session.commit()
-                return { 'message' : 'OK' }, 204
-            else:
-                return create_error('Forbidden', 403, ['you don\'t have access this resource']), 403
+def update_user(user_id):
+    if request.method == 'DELETE':
+        if ownership(request, user_id):
+            userToDelete = User.query.filter_by(id=user_id).first()
+            requestToken = request.headers.get('Authorization')
+            tokenObj = Token.query.filter_by(code=requestToken).first()
+            db.session.delete(tokenObj)
+            db.session.delete(userToDelete)
+            db.session.commit()
+            return { 'message' : 'OK' }, 204
+        else:
+            return create_error('Forbidden', 403, ['you don\'t have access this resource']), 403
 
-        if request.method == 'PUT':
-            if ownership(request, id):
-                username = request.json.get('username')
-                email = request.json.get('email')
-                pseudo = request.json.get('pseudo')
-                password = request.json.get('password')
-                if username is None or email is None or password is None:
-                    error = 'missing either username, email or password'
-                elif not wordRe.fullmatch(username) or not emailRe.fullmatch(email):
-                    error = 'either invalid username (3 to 12 chars, alphanumeric, dashes and underscores), or invalid email'
-                elif (User.query.filter_by(username=username).first() is not None or
-                User.query.filter_by(email=email).first() is not None):
-                    error = 'username or email already in use on another account'
+    if request.method == 'PUT':
+        if ownership(request, user_id):
+            username = request.json.get('username')
+            email = request.json.get('email')
+            pseudo = request.json.get('pseudo')
+            password = request.json.get('password')
+            if username is None or email is None or password is None:
+                error = 'missing either username, email or password'
+            elif not wordRe.fullmatch(username) or not emailRe.fullmatch(email):
+                error = 'either invalid username (3 to 12 chars, alphanumeric, dashes and underscores), or invalid email'
+            elif (User.query.filter_by(username=username).first() is not None or
+            User.query.filter_by(email=email).first() is not None):
+                error = 'username or email already in use on another account'
+            else:
+                userToUpdate = User.query.filter_by(username=username).first()
+                if userToUpdate is not None:
+                    userToUpdate.email = email
+                    userToUpdate.pseudo = pseudo
+                    userToUpdate.password = password
+                    db.session.commit()
+                    return { 'message' : 'OK', 'data': userToUpdate.as_dict() }, 201
                 else:
-                    userToUpdate = User.query.filter_by(username=username).first()
-                    if userToUpdate is not None:
-                        userToUpdate.email = email
-                        userToUpdate.pseudo = pseudo
-                        userToUpdate.password = password
-                        db.session.commit()
-                        return { 'message' : 'OK', 'data': userToUpdate.as_dict() }, 201
-                    else:
-                        return create_error('Bad Request', 400, ['resource does not exist']), 400
-                return create_error('Bad Request', 400, [error]), 400
-            else:
-                return create_error('Forbidden', 403, ['you don\'t have access this resource']), 403
+                    return create_error('Not Found', 404, ['resource does not exist']), 404
+            return create_error('Bad Request', 400, [error]), 400
+        else:
+            return create_error('Forbidden', 403, ['you don\'t have access this resource']), 403
 
-        if request.method == 'GET':
-            user = User.query.filter_by(id=id).first()
-            if user is not None:
-                return { 'message': 'OK', 'data': user.as_dict() }, 200
-            else:
-                return create_error('Bad Request', 400, ['resource does not exist']), 400
+    if request.method == 'GET':
+        user = User.query.filter_by(id=user_id).first()
+        if user is not None:
+            return { 'message': 'OK', 'data': user.as_dict() }, 200
+        else:
+            return create_error('Not Found', 404, ['resource does not exist']), 404
 
 
 @app.route('/users', methods=['GET'])
@@ -277,17 +276,18 @@ def auth():
                 error = 'user referenced with this username and password does not exist'
         return create_error('Bad Request', 400, [error]), 400
 
-@app.route('/user/<id>/video', methods=['POST'])
-# @auth_required
-def upload_video(id):
+@app.route('/user/<int:user_id>/video', methods=['POST'])
+@res_ownership_required
+def upload_video(user_id):
     if request.method == 'POST':
-        if 'file' not in request.files:
-            return create_error('Bad Request', 400, ['no file sent']), 400
+        name = request.form.get('name')
+        if 'file' not in request.files or name is None or not isinstance(name, str):
+            return create_error('Bad Request', 400, ['either no file sent, name not given or name not an instance of string']), 400
         file = request.files['file']
         if file.filename == '':
             return create_error('Bad Request', 400, ['no file sent']), 400
         if file and allowed_file(file.filename):
-            filename = secure_filename(file.filename)
+            filename = secure_filename(name)
             i = 0
             filepath = os.path.join(app.config['UPLOAD_FOLDER'], str(i) + '_' + filename)
             while (os.path.isfile(filepath)):
@@ -296,14 +296,15 @@ def upload_video(id):
             file.save(filepath)
             newVideo = Video(name=filename,
                             duration=get_length(filepath),
-                            user_id=id,
+                            user_id=user_id,
                             source=str(i) + '_' + filename,
                             view=0,
                             enabled=1)
             db.session.add(newVideo)
             db.session.commit()
             return { 'message': 'OK', 'data': newVideo.as_dict() }
-    return create_error('Bad Method', 405, ['you shouldn\'t be able to see that']), 405
+        else:
+            return create_error('Bad Request', 400, ['your file is most likely not matching one of the following types : mp4, avi, mkv']), 400
 
 #TODO gerer user string or int
 @app.route('/videos', methods=['GET'])
@@ -336,9 +337,9 @@ def list_videos():
         return { 'message': 'OK', 'data': printableVideos[startIndex:endIndex], 'pager': { 'current': page, 'total': total } }
     return create_error('Bad Method', 405, ['you shouldn\'t be able to see that']), 405
 
-@app.route('/video/<id>', methods=['PATCH', 'PUT', 'DELETE'])
+@app.route('/video/<int:video_id>', methods=['PATCH', 'PUT', 'DELETE'])
 # @auth_required
-def update_video(id):
+def update_video(video_id):
     if request.method == 'PATCH':
         # TODO step 10 / encoding
         return 'PATCH'
@@ -348,7 +349,7 @@ def update_video(id):
         user_id = request.json.get('user')
         if (name and user_id is not None and
         isinstance(user_id, int)):
-            videoToUpdate = Video.query.filter_by(id=id).first()
+            videoToUpdate = Video.query.filter_by(id=video_id).first()
             if videoToUpdate is not None:
                 videoToUpdate.name = name
                 videoToUpdate.user_id = user_id
@@ -362,7 +363,7 @@ def update_video(id):
     if request.method == 'DELETE':
         requestToken = request.headers.get('Authorization')
         tokenObj = Token.query.filter_by(code=requestToken).first()
-        videoToDelete = Video.query.filter_by(id=id).first()
+        videoToDelete = Video.query.filter_by(id=video_id).first()
         if (videoToDelete.user_id == tokenObj.user_id):
             os.remove(os.path.join(app.config['UPLOAD_FOLDER'],videoToDelete.source))
             db.session.delete(videoToDelete)
@@ -372,18 +373,18 @@ def update_video(id):
             return create_error('Forbidden', 403, ['you don\'t have access to this resource']), 403
         return create_error('Server Error', 500, ['Error while processing']), 500
 
-@app.route('/video/<id>/comment', methods=['POST'])
+@app.route('/video/<int:video_id>/comment', methods=['POST'])
 # @auth_required
-def post_comment(id):
+def post_comment(video_id):
     if request.method == 'POST':
         body = request.json.get('body')
         requestToken = request.headers.get('Authorization')
         tokenObj = Token.query.filter_by(code=requestToken).first()
-        videoObj = Video.query.filter_by(id=int(id)).first()
+        videoObj = Video.query.filter_by(id=video_id).first()
         if body is not None:
             if tokenObj.user_id == videoObj.user_id:
                 newComment = Comment(body=body,
-                                video_id=int(id),
+                                video_id=video_id,
                                 user_id=videoObj.user_id)
                 db.session.add(newComment)
                 db.session.commit()
@@ -393,16 +394,16 @@ def post_comment(id):
         else:
             return create_error('Bad Request', 400, ['bad parameters']), 400
 
-@app.route('/video/<id>/comments', methods=['GET'])
+@app.route('/video/<int:video_id>/comments', methods=['GET'])
 # @auth_required
-def list_comments(id):
+def list_comments(video_id):
     if request.method == 'GET':
         page = int(request.args.get('page'))
         page = 1 if page is None else page
         perPage = int(request.args.get('perPage'))
         perPage = 5 if perPage is None else perPage
 
-        comments = Comment.query.filter_by(video_id=int(id)).order_by(text('id desc')).all()
+        comments = Comment.query.filter_by(video_id=video_id).order_by(text('id desc')).all()
         length = len(comments)
         total = int(len(comments) / perPage)
         total = total + 1 if len(comments) % perPage != 0 else total
