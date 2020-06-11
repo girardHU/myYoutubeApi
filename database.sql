@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS `mydb`.`video` (
   `created_at` DATETIME NOT NULL,
   `view` INT NOT NULL,
   `enabled` TINYINT(1) NOT NULL,
+  `format` JSON,
   PRIMARY KEY (`id`),
   INDEX `fk_video_user_idx` (`user_id` ASC),
   CONSTRAINT `fk_video_user`

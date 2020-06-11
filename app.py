@@ -15,6 +15,7 @@ from werkzeug.utils import secure_filename
 
 UPLOAD_FOLDER = '/home/itha/Dev/ETNA/myFlaskAPI/public'
 ALLOWED_EXTENSIONS = {'mp4', 'avi', 'mkv'}
+ALLOWED_FORMATS = {1080, 720, 480, 360, 240}
 
 ## VIDEO LENGTH
 import subprocess
@@ -74,6 +75,7 @@ class Video(db.Model, JsonableModel):
     created_at = db.Column(db.DateTime(), unique=False, nullable=False, default=datetime.utcnow())
     view = db.Column(db.Integer, nullable=False)
     enabled = db.Column(db.Boolean, nullable=False)
+    format = db.Column(db.JSON)
 
 class Comment(db.Model, JsonableModel):
     id = db.Column(db.Integer, primary_key=True)
@@ -164,6 +166,8 @@ def page_not_found(e):
 @app.route('/user', methods=['POST'])
 def post_user():
     if request.method == 'POST':
+        if not request.json:
+            return create_error('Bad Request', 400, ['no json sent']), 400
         username = request.json.get('username')
         email = request.json.get('email')
         pseudo = request.json.get('pseudo')
@@ -204,6 +208,8 @@ def update_user(user_id):
 
     if request.method == 'PUT':
         if ownership(request, user_id):
+            if not request.json:
+                return create_error('Bad Request', 400, ['no json sent']), 400
             username = request.json.get('username')
             email = request.json.get('email')
             pseudo = request.json.get('pseudo')
@@ -212,15 +218,16 @@ def update_user(user_id):
                 error = 'missing either username, email or password'
             elif not wordRe.fullmatch(username) or not emailRe.fullmatch(email):
                 error = 'either invalid username (3 to 12 chars, alphanumeric, dashes and underscores), or invalid email'
-            elif (User.query.filter_by(username=username).first() is not None or
-            User.query.filter_by(email=email).first() is not None):
+            elif (User.query.filter_by(username=username).first() is not None and User.query.filter_by(username=username).first().id != user_id or
+            User.query.filter_by(email=email).first() is not None and User.query.filter_by(email=email).first().id != user_id):
                 error = 'username or email already in use on another account'
             else:
-                userToUpdate = User.query.filter_by(username=username).first()
+                userToUpdate = User.query.filter_by(id=user_id).first()
                 if userToUpdate is not None:
+                    userToUpdate.username = username
                     userToUpdate.email = email
                     userToUpdate.pseudo = pseudo
-                    userToUpdate.password = password
+                    userToUpdate.password = hash_password(password)
                     db.session.commit()
                     return { 'message' : 'OK', 'data': userToUpdate.as_dict() }, 201
                 else:
@@ -296,6 +303,8 @@ def list_videos_by_user(user_id):
 @app.route('/auth', methods=['POST'])
 def auth():
     if request.method == 'POST':
+        if not request.json:
+            return create_error('Bad Request', 400, ['no json sent']), 400
         login = request.json.get('login')
         password = request.json.get('password')
         error = None
@@ -322,6 +331,8 @@ def auth():
 @res_ownership_required
 def upload_video(user_id):
     if request.method == 'POST':
+        if not request.form:
+            return create_error('Bad Request', 400, ['no form sent']), 400
         name = request.form.get('name')
         if 'file' not in request.files or name is None or not isinstance(name, str):
             return create_error('Bad Request', 400, ['either no file sent, name not given or name not an instance of string']), 400
@@ -388,45 +399,68 @@ def list_videos():
             return create_error('Not Found', 404, ['no resource matched your request']), 404
 
 @app.route('/video/<int:video_id>', methods=['PATCH', 'PUT', 'DELETE'])
-# @auth_required
+@auth_required
 def update_video(video_id):
     if request.method == 'PATCH':
-        # TODO step 10 / encoding
-        return 'PATCH'
+        if not request.json:
+            return create_error('Bad Request', 400, ['no json sent']), 400
+        format = request.json.get('format')
+        uri = request.json.get('uri')
+        if not format or not uri:
+            error = 'missing either format, uri or both'
+        elif format not in ALLOWED_FORMATS:
+            error = 'the format is not supported'
+        elif not os.path.isabs(uri):
+            error = 'uri is not valid path : try absolute'
+        else:
+            video = Video.query.filter_by(id=video_id).first()
+            temp = video.format.copy()
+            temp[format] = uri
+            video.format = temp
+            db.session.commit()
+            return { 'message' : 'OK', 'data': video.as_dict() }, 200
+        return create_error('Bad Request', 400, [error]), 400
     
     if request.method == 'PUT':
-        name = request.json.get('name')
-        user_id = request.json.get('user')
-        if (name and user_id is not None and
-        isinstance(user_id, int)):
-            videoToUpdate = Video.query.filter_by(id=video_id).first()
-            if videoToUpdate is not None:
-                videoToUpdate.name = name
-                videoToUpdate.user_id = user_id
+        videoToUpdate = Video.query.filter_by(id=video_id).first()
+        if videoToUpdate is not None:
+            if ownership(request, videoToUpdate.user_id):
+                if not request.json:
+                    return create_error('Bad Request', 400, ['no json sent']), 400
+                name = request.json.get('name')
+                user_id = request.json.get('user')
+                if name is not None:
+                    videoToUpdate.name = name
+                if user_id is not None and isinstance(user_id, int) and User.query.filter_by(id=user_id).first() is not None:
+                    videoToUpdate.user_id = user_id
+                elif user_id is not None and isinstance(user_id, int) and User.query.filter_by(id=user_id).first() is None:
+                    return create_error('Bad Request', 400, ['no user with this id to transfer resource to']), 400
                 db.session.commit()
-                return { 'message' : 'OK', 'data': videoToUpdate.as_dict() }, 201
+                return { 'message' : 'OK', 'data': videoToUpdate.as_dict() }, 200
             else:
-                return create_error('Bad Request', 400, ['resource does not exist']), 400
+                return create_error('Forbidden', 403, ['you don\'t have access this resource']), 403
         else:
-            return create_error('Bad Request', 400, ['bad parameters']), 400
+            return create_error('Bad Request', 400, ['resource does not exist']), 400
 
     if request.method == 'DELETE':
-        requestToken = request.headers.get('Authorization')
-        tokenObj = Token.query.filter_by(code=requestToken).first()
         videoToDelete = Video.query.filter_by(id=video_id).first()
-        if (videoToDelete.user_id == tokenObj.user_id):
-            os.remove(os.path.join(app.config['UPLOAD_FOLDER'],videoToDelete.source))
-            db.session.delete(videoToDelete)
-            db.session.commit()
-            return 204
+        if videoToDelete is not None:
+            if ownership(request, videoToDelete.user_id):
+                os.remove(os.path.join(app.config['UPLOAD_FOLDER'],videoToDelete.source))
+                db.session.delete(videoToDelete)
+                db.session.commit()
+                return 204
+            else:
+                return create_error('Forbidden', 403, ['you don\'t have access to this resource']), 403
         else:
-            return create_error('Forbidden', 403, ['you don\'t have access to this resource']), 403
-        return create_error('Server Error', 500, ['Error while processing']), 500
+            return create_error('Bad Request', 400, ['resource does not exist']), 400
 
 @app.route('/video/<int:video_id>/comment', methods=['POST'])
 # @auth_required
 def post_comment(video_id):
     if request.method == 'POST':
+        if not request.json:
+            return create_error('Bad Request', 400, ['no json sent']), 400
         body = request.json.get('body')
         requestToken = request.headers.get('Authorization')
         tokenObj = Token.query.filter_by(code=requestToken).first()
