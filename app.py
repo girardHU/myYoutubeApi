@@ -228,28 +228,35 @@ def update_user(user_id):
 @app.route('/users', methods=['GET'])
 def list_users():
     if request.method == 'GET':
-        pseudo = request.args.get('pseudo')
+        pseudo = None
+        if request.json:
+            pseudo = request.json.get('pseudo')
         try:
             page = int(request.args.get('page'))
             page = 1 if page is None else page
             perPage = int(request.args.get('perPage'))
             perPage = 5 if perPage is None else perPage
         except ValueError:
-            return create_error('Bad Request', 400, ['either page, perPage or both of them are not int']), 400
+            return create_error('Bad Request', 400, ['either page, perPage or both of them are not integers']), 400
 
         if pseudo is not None:
             users = User.query.filter_by(pseudo=pseudo).order_by(text('id desc')).all()
-            length = len(users)
-            total = int(len(users) / perPage)
-            total = total + 1 if len(users) % perPage != 0 else total
-            startIndex = perPage * (page - 1)
-            endIndex = perPage * page
-            printableUsers = []
-            for user in users:
-                printableUsers.append(user.as_dict())
+        else:
+            users = User.query.order_by(text('id desc')).all()
+        length = len(users)
+        total = int(len(users) / perPage)
+        total = total + 1 if len(users) % perPage != 0 else total
+        page = page if page <= total else total
+        startIndex = perPage * (page - 1) if perPage * (page - 1) < len(users) else len(users) - perPage
+        startIndex = startIndex if startIndex >= 0 else 0
+        endIndex = startIndex + perPage
+        printableUsers = []
+        for user in users:
+            printableUsers.append(user.as_dict())
+        if printableUsers:
             return { 'message': 'OK', 'data': printableUsers[startIndex:endIndex], 'pager': { 'current': page, 'total': total } }
         else:
-            return create_error('Not Found', 404, ['No user with this pseudo was found']), 404
+            return create_error('Not Found', 404, ['No user was found']), 404
 
 @app.route('/auth', methods=['POST'])
 def auth():
@@ -310,32 +317,43 @@ def upload_video(user_id):
 @app.route('/videos', methods=['GET'])
 def list_videos():
     if request.method == 'GET':
-        name = request.json.get('name')
-        user_id = request.json.get('user')
-        duration = request.json.get('duration')
-        page = request.json.get('page')
-        page = 1 if page is None else page
-        perPage = request.json.get('perPage')
-        perPage = 5 if perPage is None else perPage
+        name = user = duration = None
+        if request.json:
+            name = request.json.get('name')
+            user = request.json.get('user')
+            duration = request.json.get('duration')
+        try:
+            page = int(request.args.get('page'))
+            page = 1 if page is None else page
+            perPage = int(request.args.get('perPage'))
+            perPage = 5 if perPage is None else perPage
+        except ValueError:
+            return create_error('Bad Request', 400, ['either page, perPage or both of them are not integers']), 400
 
         if name is not None:
             videos = Video.query.filter_by(name=name).order_by(text('id desc')).all()
-        elif user_id is not None:
-            videos = Video.query.filter_by(user_id=user_id).order_by(text('id desc')).all()
+        elif user is not None and isinstance(user, int):
+            videos = Video.query.filter_by(user_id=user).order_by(text('id desc')).all()
+        elif user is not None and isinstance(user, str):
+            videos = Video.query.join(User).filter(User.username == user).all()
         elif duration is not None:
             videos = Video.query.filter_by(duration=duration).order_by(text('id desc')).all()
         else:
-            return create_error('Bad Request', 400, ['Bad Params']), 400
+            videos = Video.query.order_by(text('id desc')).all()
         length = len(videos)
         total = int(len(videos) / perPage)
         total = total + 1 if len(videos) % perPage != 0 else total
-        startIndex = perPage * (page - 1)
-        endIndex = perPage * page
+        page = page if page <= total else total
+        startIndex = perPage * (page - 1) if perPage * (page - 1) < len(videos) else len(videos) - perPage
+        startIndex = startIndex if startIndex >= 0 else 0
+        endIndex = startIndex + perPage
         printableVideos = []
         for video in videos:
             printableVideos.append(video.as_dict())
-        return { 'message': 'OK', 'data': printableVideos[startIndex:endIndex], 'pager': { 'current': page, 'total': total } }
-    return create_error('Bad Method', 405, ['you shouldn\'t be able to see that']), 405
+        if printableVideos:
+            return { 'message': 'OK', 'data': printableVideos[startIndex:endIndex], 'pager': { 'current': page, 'total': total } }
+        else:
+            return create_error('Not Found', 404, ['no resource matched your request']), 404
 
 @app.route('/video/<int:video_id>', methods=['PATCH', 'PUT', 'DELETE'])
 # @auth_required
