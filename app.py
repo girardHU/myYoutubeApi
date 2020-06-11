@@ -456,17 +456,15 @@ def update_video(video_id):
             return create_error('Bad Request', 400, ['resource does not exist']), 400
 
 @app.route('/video/<int:video_id>/comment', methods=['POST'])
-# @auth_required
+@auth_required
 def post_comment(video_id):
     if request.method == 'POST':
-        if not request.json:
-            return create_error('Bad Request', 400, ['no json sent']), 400
-        body = request.json.get('body')
-        requestToken = request.headers.get('Authorization')
-        tokenObj = Token.query.filter_by(code=requestToken).first()
         videoObj = Video.query.filter_by(id=video_id).first()
-        if body is not None:
-            if tokenObj.user_id == videoObj.user_id:
+        if ownership(request, videoObj.user_id):
+            if not request.json:
+                return create_error('Bad Request', 400, ['no json sent']), 400
+            body = request.json.get('body')
+            if body is not None:
                 newComment = Comment(body=body,
                                 video_id=video_id,
                                 user_id=videoObj.user_id)
@@ -474,28 +472,33 @@ def post_comment(video_id):
                 db.session.commit()
                 return { 'message' : 'OK', 'data': newComment.as_dict() }, 201
             else:
-                return create_error('Forbidden', 403, ['you don\'t have access to this resource']), 403
+                return create_error('Bad Request', 400, ['missing body']), 400
         else:
-            return create_error('Bad Request', 400, ['bad parameters']), 400
+            return create_error('Forbidden', 403, ['you don\'t have access this resource']), 403
 
 @app.route('/video/<int:video_id>/comments', methods=['GET'])
-# @auth_required
+@auth_required
 def list_comments(video_id):
     if request.method == 'GET':
-        page = int(request.args.get('page'))
-        page = 1 if page is None else page
-        perPage = int(request.args.get('perPage'))
-        perPage = 5 if perPage is None else perPage
+        videoObj = Video.query.filter_by(id=video_id).first()
+        if ownership(request, videoObj.user_id):
+            page = request.args.get('page')
+            perPage = request.args.get('perPage')
+            try:
+                if page:
+                    page = int(request.args.get('page'))
+                page = 1 if page is None else page
+                if perPage:
+                    perPage = int(request.args.get('perPage'))
+                perPage = 5 if perPage is None else perPage
+            except ValueError:
+                return create_error('Bad Request', 400, ['either page, perPage or both of them are not integers']), 400
 
-        comments = Comment.query.filter_by(video_id=video_id).order_by(text('id desc')).all()
-        length = len(comments)
-        total = int(len(comments) / perPage)
-        total = total + 1 if len(comments) % perPage != 0 else total
-        startIndex = perPage * (page - 1)
-        endIndex = perPage * page
-        printableComments = []
-        for user in comments:
-            printableComments.append(user.as_dict())
-        return { 'message': 'OK', 'data': printableComments[startIndex:endIndex], 'pager': { 'current': page, 'total': total } }
-
-    return create_error('Bad Method', 405, ['you shouldn\'t be able to see that']), 405
+            comments = Comment.query.filter_by(video_id=video_id).order_by(text('id desc')).all()
+            page, total, startIndex, endIndex = generate_pager_variables(comments, page, perPage)
+            printableComments = []
+            for comment in comments:
+                printableComments.append(comment.as_dict())
+            return { 'message': 'OK', 'data': printableComments[startIndex:endIndex], 'pager': { 'current': page, 'total': total } }
+        else:
+            return create_error('Forbidden', 403, ['you don\'t have access this resource']), 403
