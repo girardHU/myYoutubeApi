@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS `mydb`.`video` (
   CONSTRAINT `fk_video_user`
     FOREIGN KEY (`user_id`)
     REFERENCES `mydb`.`user` (`id`)
-    ON DELETE NO ACTION
+    ON DELETE CASCADE
     ON UPDATE NO ACTION)
 ENGINE = InnoDB;
 
@@ -69,7 +69,7 @@ CREATE TABLE IF NOT EXISTS `mydb`.`video_format` (
   CONSTRAINT `fk_video_format_video1`
     FOREIGN KEY (`video_id`)
     REFERENCES `mydb`.`video` (`id`)
-    ON DELETE NO ACTION
+    ON DELETE CASCADE
     ON UPDATE NO ACTION)
 ENGINE = InnoDB;
 
@@ -88,7 +88,7 @@ CREATE TABLE IF NOT EXISTS `mydb`.`token` (
   CONSTRAINT `fk_token_user1`
     FOREIGN KEY (`user_id`)
     REFERENCES `mydb`.`user` (`id`)
-    ON DELETE NO ACTION
+    ON DELETE CASCADE
     ON UPDATE NO ACTION)
 ENGINE = InnoDB;
 
@@ -112,7 +112,7 @@ CREATE TABLE IF NOT EXISTS `mydb`.`comment` (
   CONSTRAINT `fk_comment_video1`
     FOREIGN KEY (`video_id`)
     REFERENCES `mydb`.`video` (`id`)
-    ON DELETE NO ACTION
+    ON DELETE CASCADE
     ON UPDATE NO ACTION)
 ENGINE = InnoDB;
 

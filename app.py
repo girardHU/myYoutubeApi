@@ -44,17 +44,22 @@ class JsonableModel():
         return { c.name: getattr(self, c.name) for c in self.__table__.columns }
 
 class User(db.Model, JsonableModel):
+    __tablename__ = 'user'
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(45), unique=True, nullable=False)
     email = db.Column(db.String(45), unique=True, nullable=False)
     pseudo = db.Column(db.String(45), nullable=True)
     password = db.Column(db.String(45), nullable=False)
     created_at = db.Column(db.DateTime(), unique=False, nullable=False, default=datetime.utcnow())
+    tokens = db.relationship('Token', cascade='all, delete-orphan')
+    videos = db.relationship('Video', cascade='all, delete-orphan')
+    comments = db.relationship('Comment')
 
     def __repr__(self):
         return '<User %r>' % self.username
 
 class Token(db.Model, JsonableModel):
+    __tablename__ = 'token'
     id = db.Column(db.Integer, primary_key=True)
     code = db.Column(db.String(45), unique=True, nullable=False)
     expired_at = db.Column(db.DateTime(), unique=False, nullable=False, default=datetime.utcnow() + timedelta(days=1))
@@ -63,7 +68,11 @@ class Token(db.Model, JsonableModel):
     user = db.relationship('User',
         backref=db.backref('owner_token', lazy=True))
 
+    def __repr__(self):
+        return '<user %r\'s token>' % self.user_id
+
 class Video(db.Model, JsonableModel):
+    __tablename__ = 'video'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(45), nullable=False)
     duration = db.Column(db.Integer)
@@ -71,13 +80,18 @@ class Video(db.Model, JsonableModel):
         nullable=False)
     user = db.relationship('User',
         backref=db.backref('owner_videos', lazy=True))
+    comments = db.relationship('Comment', cascade='all, delete-orphan')
     source = db.Column(db.String(45), nullable=False)
     created_at = db.Column(db.DateTime(), unique=False, nullable=False, default=datetime.utcnow())
     view = db.Column(db.Integer, nullable=False)
     enabled = db.Column(db.Boolean, nullable=False)
     format = db.Column(db.JSON)
 
+    def __repr__(self):
+        return '<Video %r>' % self.source
+
 class Comment(db.Model, JsonableModel):
+    __tablename__ = 'comment'
     id = db.Column(db.Integer, primary_key=True)
     body = db.Column(db.String(16000000), nullable=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'),
@@ -88,7 +102,10 @@ class Comment(db.Model, JsonableModel):
         nullable=False)
     video = db.relationship('Video',
         backref=db.backref('related_videos', lazy=True))
-    # created_at = db.Column(db.DateTime(), unique=False, nullable=False, default=datetime.utcnow())
+    created_at = db.Column(db.DateTime(), unique=False, nullable=False, default=datetime.utcnow())
+
+    def __repr__(self):
+        return '<Comment saying : %r>' % self.body
 
 
 def auth_required(f):
@@ -196,10 +213,13 @@ def post_user():
 def update_user(user_id):
     if request.method == 'DELETE':
         if ownership(request, user_id):
+            print(user_id)
             userToDelete = User.query.filter_by(id=user_id).first()
-            requestToken = request.headers.get('Authorization')
-            tokenObj = Token.query.filter_by(code=requestToken).first()
-            db.session.delete(tokenObj)
+            print(userToDelete.as_dict())
+            # requestToken = request.headers.get('Authorization')
+            # tokenObj = Token.query.filter_by(code=requestToken).first()
+
+            # db.session.delete(tokenObj)
             db.session.delete(userToDelete)
             db.session.commit()
             return { 'message' : 'OK' }, 204
