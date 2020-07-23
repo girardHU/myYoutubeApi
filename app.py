@@ -1,5 +1,6 @@
 import json
 import re
+import requests
 from datetime import datetime, timedelta
 import hashlib, binascii
 from secrets import token_hex
@@ -7,13 +8,17 @@ from flask import Flask, request
 from functools import wraps
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import text
+from elasticsearch import Elasticsearch
 
 ## FILE UPLOAD
 import os
-from flask import Flask, flash, request, redirect, url_for
+from flask import flash, redirect, url_for
 from werkzeug.utils import secure_filename
 
-UPLOAD_FOLDER = '/home/itha/Dev/ETNA/myFlaskAPI/public'
+## ENCODING
+import cv2
+
+UPLOAD_FOLDER = '/home/itha/Dev/myYoutubeApi/public'
 ALLOWED_EXTENSIONS = {'mp4', 'avi', 'mkv'}
 ALLOWED_FORMATS = {1080, 720, 480, 360, 240}
 
@@ -31,6 +36,9 @@ def get_length(filename):
 ## REGEX
 wordRe = re.compile('[a-zA-Z0-9_-]{3,12}')
 emailRe = re.compile('^[a-z0-9]+[\._]?[a-z0-9]+[@]\w+[.]\w{2,3}$')
+
+#ElasticSearch
+es = Elasticsearch([{'host': 'localhost', 'port': 9200}])
 
 ## APP
 app = Flask(__name__)
@@ -354,6 +362,7 @@ def upload_video(user_id):
         if not request.form:
             return create_error('Bad Request', 400, ['no form sent']), 400
         name = request.form.get('name')
+        resolution = int(request.form.get('format'))
         if 'file' not in request.files or name is None or not isinstance(name, str):
             return create_error('Bad Request', 400, ['either no file sent, name not given or name not an instance of string']), 400
         file = request.files['file']
@@ -369,6 +378,7 @@ def upload_video(user_id):
             file.save(filepath)
             newVideo = Video(name=filename,
                             duration=get_length(filepath),
+                            format=[resolution],
                             user_id=user_id,
                             source=str(i) + '_' + filename,
                             view=0,
@@ -424,11 +434,11 @@ def update_video(video_id):
     if request.method == 'PATCH':
         if not request.json:
             return create_error('Bad Request', 400, ['no json sent']), 400
-        format = request.json.get('format')
+        resolution = request.json.get('format')
         uri = request.json.get('uri')
-        if not format or not uri:
+        if not resolution or not uri:
             error = 'missing either format, uri or both'
-        elif format not in ALLOWED_FORMATS:
+        elif resolution not in ALLOWED_FORMATS:
             error = 'the format is not supported'
         elif not os.path.isabs(uri):
             error = 'uri is not valid path : try absolute'
@@ -522,3 +532,97 @@ def list_comments(video_id):
             return { 'message': 'OK', 'data': printableComments[startIndex:endIndex], 'pager': { 'current': page, 'total': total } }
         else:
             return create_error('Forbidden', 403, ['you don\'t have access this resource']), 403
+
+@app.route('/video/<int:video_id>/encode', methods=['PATCH'])
+def encode_video(video_id):
+    p240 = {426, 240}
+    p360 = {640, 360}
+    p480 = {854, 480}
+    p720 = {1280, 720}
+    p1080 = {1920, 1080}
+    if request.method == 'PATCH':
+        video = Video.query.filter_by(id=video_id).first()
+        for reso in ALLOWED_FORMATS:
+            if reso < video.format[0]:
+                cap = cv2.VideoCapture('/home/itha/Dev/myYoutubeApi/public/0_videohugo1')
+                print(cap)
+
+                # Define the codec and create VideoWriter object
+                fourcc = cv2.VideoWriter_fourcc(*'H264')
+                out = cv2.VideoWriter('videoTest1.mp4', fourcc, 20.0, (426, 240))
+
+                # Read until video is completed
+                while(cap.isOpened()):
+                    # Capture frame-by-frame
+                    ret, frame = cap.read()
+
+                    if ret == True:
+
+                        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+                        cv2.imshow('frame',gray)
+                        out.write(frame)
+                        if cv2.waitKey(1) & 0xFF == ord('q'):
+                            break
+
+                        # cv2.imshow('frame',frame)
+
+                    # Break the loop
+                    else:
+                        break
+
+                # When everything done, release the video capture object
+                cap.release()
+                out.release()
+
+
+                # Closes all the frames
+                cv2.destroyAllWindows()
+        return 'Pending'
+
+import smtplib, ssl
+from email.message import EmailMessage
+
+def send_mail_to(type, mail_address):
+    try:
+        mail = Mail.query.filter_by(type=type).first()
+        mail_from = "msmailer.myyt@gmail.com"
+        msg = EmailMessage()
+        msg.set_content(mail.content)
+        msg["Subject"] = mail.subject
+        msg["From"] = mail_from
+        msg["To"] = mail_address
+        context=ssl.create_default_context()
+        with smtplib.SMTP('smtp.gmail.com', 587) as smtp:
+            smtp.starttls(context=context)
+            smtp.login(msg["From"], "MON PASSWORD")
+            smtp.send_message(msg)
+    except Exception as e:
+        return {"error": str(e)}
+    return {"state":"envoyé"}
+
+
+# @app.route('/es/test', methods=['GET'])
+# def test_es():
+#     res = requests.get('http://localhost:9200')
+#     print(res.content)
+#     return { 'succeeded': True }
+
+# @app.route('/es/populate', methods=['GET'])
+# def populate_es():
+#     page = 1
+#     res = requests.get('http://localhost:5000/videos?page=' + str(page) + '&perPage=100').json()
+#     videos = res['data']
+#     while res['pager']['current'] is not res['pager']['total']:
+#         page = page + 1
+#         res = requests.get('http://localhost:5000/videos?page=' + str(page) + '&perPage=100').json()
+#         videos.extend(res['data'])
+
+#     i = 1
+#     for video in videos:
+#         es.index(index='myYoutube', doc_type='video', id=i, body=video)
+#         i = i + 1
+
+    # es.get(index='myYoutube', doc_type='video', id=3)
+
+    # return { 'videos' : videos }

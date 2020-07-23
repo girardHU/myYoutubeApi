@@ -9,6 +9,9 @@ verify_ssl = true
 flask = "*"
 flask-sqlalchemy = "*"
 pymysql = "*"
+elasticsearch = "*"
+requests = "*"
+opencv-contrib-python = "*"
 
 [requires]
 python_version = "3.6"
