@@ -117,6 +117,19 @@ CREATE TABLE IF NOT EXISTS `mydb`.`comment` (
 ENGINE = InnoDB;
 
 
+-- -----------------------------------------------------
+-- Table `mydb`.`mail`
+-- -----------------------------------------------------
+CREATE TABLE IF NOT EXISTS `mydb`.`mail` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `sender` TEXT NULL,
+  `subject` TEXT NOT NULL,
+  `content` LONGTEXT NOT NULL,
+  `type` INT NOT NULL,
+  PRIMARY KEY (`id`))
+ENGINE = InnoDB;
+
+
 SET SQL_MODE=@OLD_SQL_MODE;
 SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS;
 SET UNIQUE_CHECKS=@OLD_UNIQUE_CHECKS;

@@ -26,9 +26,9 @@ ALLOWED_FORMATS = {1080, 720, 480, 360, 240}
 import subprocess
 
 def get_length(filename):
-    result = subprocess.run(["ffprobe", "-v", "error", "-show_entries",
-                            "format=duration", "-of",
-                            "default=noprint_wrappers=1:nokey=1", filename],
+    result = subprocess.run(['ffprobe', '-v', 'error', '-show_entries',
+                            'format=duration', '-of',
+                            'default=noprint_wrappers=1:nokey=1', filename],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT)
     return int(float(result.stdout)) + 1
@@ -115,6 +115,17 @@ class Comment(db.Model, JsonableModel):
     def __repr__(self):
         return '<Comment saying : %r>' % self.body
 
+class Mail(db.Model, JsonableModel):
+    __tablename__ = 'mail'
+    id = db.Column(db.Integer, primary_key=True)
+    sender = db.Column(db.String(1600), nullable=True)
+    subject = db.Column(db.String(1600), nullable=False)
+    content = db.Column(db.String(1600000), nullable=False)
+    type = db.Column(db.Integer(), nullable=False)
+
+    def __repr__(self):
+        return '<Mail saying : %r>' % self.body
+
 
 def auth_required(f):
     @wraps(f)
@@ -183,6 +194,26 @@ def verify_password(stored_password, provided_password):
     pwdhash = binascii.hexlify(pwdhash).decode('ascii')
     return pwdhash == stored_password
 
+import smtplib, ssl
+from email.message import EmailMessage
+
+def send_mail(type, mail_address):
+    try:
+        mail = Mail.query.filter_by(type=type).first()
+        msg = EmailMessage()
+        msg.set_content(mail.content)
+        msg['Subject'] = mail.subject
+        msg['From'] = mail.sender
+        msg['To'] = mail_address
+        context = ssl.create_default_context()
+        with smtplib.SMTP('smtp.gmail.com', 587) as smtp:
+            smtp.starttls(context=context)
+            smtp.login(msg['From'], 'HWP123456789;')
+            smtp.send_message(msg)
+    except Exception as e:
+        return { 'error': str(e) }
+    return { 'state': 'envoyé' }
+
 @app.errorhandler(404)
 def page_not_found(e):
     return create_error('Not Found', 404, ['the uri you are requesting is not referenced',
@@ -211,6 +242,7 @@ def post_user():
                             password=hash_password(password))
             db.session.add(newUser)
             db.session.commit()
+            print(send_mail(1, email))
             return { 'message' : 'OK', 'data': newUser.as_dict() }, 201
         return create_error('Bad Request', 400, [error]), 400
 
@@ -533,6 +565,8 @@ def list_comments(video_id):
         else:
             return create_error('Forbidden', 403, ['you don\'t have access this resource']), 403
 
+@app.route('/mail/')
+
 @app.route('/video/<int:video_id>/encode', methods=['PATCH'])
 def encode_video(video_id):
     p240 = {426, 240}
@@ -579,27 +613,6 @@ def encode_video(video_id):
                 # Closes all the frames
                 cv2.destroyAllWindows()
         return 'Pending'
-
-import smtplib, ssl
-from email.message import EmailMessage
-
-def send_mail_to(type, mail_address):
-    try:
-        mail = Mail.query.filter_by(type=type).first()
-        mail_from = "msmailer.myyt@gmail.com"
-        msg = EmailMessage()
-        msg.set_content(mail.content)
-        msg["Subject"] = mail.subject
-        msg["From"] = mail_from
-        msg["To"] = mail_address
-        context=ssl.create_default_context()
-        with smtplib.SMTP('smtp.gmail.com', 587) as smtp:
-            smtp.starttls(context=context)
-            smtp.login(msg["From"], "MON PASSWORD")
-            smtp.send_message(msg)
-    except Exception as e:
-        return {"error": str(e)}
-    return {"state":"envoyé"}
 
 
 # @app.route('/es/test', methods=['GET'])
